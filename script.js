@@ -1,0 +1,934 @@
+const COST = {
+    move: 1,
+    placeAdjacent: 2,
+    placeAnywhere: 4,
+    replaceAdjacent: 5,
+    replace: 6
+};
+
+const state = {
+    board: [],
+    rows: 7,
+    cols: 7,
+    hexSize: 55,
+    hexGapH: 0,
+    hexGapV: 0,
+    players: [
+        { row: 0, col: 3, hasFlag: false },
+        { row: 0, col: 3, hasFlag: false }
+    ],
+    currentPlayer: 0,
+    numPlayers: 1,
+    points: 0,
+    gameMode: 'simple',
+    phase: 'roll',
+    selectedAction: null,
+    selectedCell: null,
+    nextTileType: 0,
+    nextTileRotation: 0,
+    startPos: { row: 0, col: 3 },
+    finishPos: { row: 6, col: 3 }
+};
+
+// Tile types: each has edges array showing which sides have openings
+// Edges: 0=top, 1=top-right, 2=bottom-right, 3=bottom, 4=bottom-left, 5=top-left
+const TILE_TYPES = [
+    [0, 3],       // Straight vertical
+    [1, 4],       // Straight diagonal /
+    [2, 5],       // Straight diagonal \
+    [0, 1],       // Turn top to top-right
+    [0, 2],       // Wide turn
+    [1, 2],       // Turn right side
+    [3, 4],       // Turn bottom
+    [0, 1, 3],    // T-junction
+    [0, 2, 4],    // Y-junction
+];
+
+function rotateEdges(edges, rotation) {
+    const r = ((rotation % 6) + 6) % 6;
+    return edges.map(edge => (edge + r) % 6);
+}
+
+// Function to determine if a cell should be visible (for symmetrical field)
+function shouldDisplayCell(row, col) {
+    // For even number of rows, we need to make field symmetrical
+    if (state.rows % 2 === 0) {
+        // If even number of rows, remove cells from bottom row that would break symmetry
+        // In hexagonal grid with flat-top orientation, cells in odd columns are shifted down
+        // So to make it symmetrical, we need to remove cells from bottom row in columns
+        // that would make the field asymmetric
+        
+        // For even rows, bottom row is state.rows-1
+        // We need to remove cells in columns where (col % 2 === 1) in the bottom row
+        if (row === state.rows - 1 && col % 2 === 1) {
+            return false;
+        }
+        
+        // Also for top row when rows is even? Let's check symmetry
+        // Actually for proper symmetry, we might need to remove from top row too
+        // But let's start with bottom row only and see
+    }
+    
+    // For odd number of rows, field is naturally more symmetrical
+    // But we still might need to adjust for very small fields
+    if (state.rows === 3 && state.cols > 4) {
+        // For 3 rows, remove corner cells to make it more playable
+        if (row === 0 && (col === 0 || col === state.cols - 1)) return false;
+        if (row === 2 && (col === 0 || col === state.cols - 1)) return false;
+    }
+    
+    return true;
+}
+
+// Hex grid positioning - flat-top hexagon layout with separate horizontal and vertical gaps
+function getHexPosition(row, col) {
+    const size = state.hexSize;
+    const gapH = state.hexGapH;
+    const gapV = state.hexGapV;
+    const w = size;
+    const h = size * 1.1547; // Height of hexagon (flat-top)
+    
+    // Horizontal distance between columns
+    const horizDist = w * 0.75 + gapH;
+    // Vertical distance between rows (full height plus vertical gap)
+    const vertDist = h + gapV;
+    
+    const x = col * horizDist;
+    // Even columns are at full row positions, odd columns are shifted down by half
+    const y = row * vertDist + (col % 2 === 1 ? vertDist * 0.5 : 0);
+    
+    return { x, y };
+}
+
+// Get center point of an edge for drawing paths
+function getEdgePoint(edge, radius = 42) {
+    // For flat-top hex: edge 0 = top, going clockwise
+    const angles = [
+        -90,   // 0: top
+        -30,   // 1: top-right
+        30,    // 2: bottom-right
+        90,    // 3: bottom
+        150,   // 4: bottom-left
+        210    // 5: top-left
+    ];
+    const angle = angles[edge] * Math.PI / 180;
+    return {
+        x: 50 + radius * Math.cos(angle),
+        y: 57.7 + radius * Math.sin(angle)
+    };
+}
+
+function createTileSVG(tileType, rotation, isStart, isFinish, isEmpty, row, col) {
+    // Flat-top hexagon
+    const points = [];
+    for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i;
+        points.push(`${50 + 46 * Math.cos(angle)},${57.7 + 46 * Math.sin(angle)}`);
+    }
+    const hexPoints = points.join(' ');
+
+    let fillColor = isEmpty ? '#1a2332' : '#1e3a5f';
+    let strokeColor = isEmpty ? '#334155' : '#0ea5e9';
+
+    if (isStart) { fillColor = '#166534'; strokeColor = '#22c55e'; }
+    if (isFinish) { fillColor = '#7f1d1d'; strokeColor = '#ef4444'; }
+
+    let svg = `<svg viewBox="0 0 100 115.4" xmlns="http://www.w3.org/2000/svg">
+    <polygon points="${hexPoints}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2.5"/>`;
+
+    // Draw paths - всегда жёлтый цвет
+    if (!isEmpty && tileType !== null) {
+        const edges = rotateEdges(TILE_TYPES[tileType], rotation);
+        const cx = 50, cy = 57.7;
+
+        // Draw path shadow
+        edges.forEach(edge => {
+            const p = getEdgePoint(edge, 48);
+            svg += `<line x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}"
+                    stroke="#1a1a2e" stroke-width="18" stroke-linecap="round"/>`;
+        });
+
+        // Draw path main - яркий жёлтый
+        edges.forEach(edge => {
+            const p = getEdgePoint(edge, 48);
+            svg += `<line x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}"
+                    stroke="#fbbf24" stroke-width="14" stroke-linecap="round"/>`;
+        });
+
+        // Center hub
+        svg += `<circle cx="${cx}" cy="${cy}" r="10" fill="#fbbf24"/>`;
+        svg += `<circle cx="${cx}" cy="${cy}" r="5" fill="#fef3c7"/>`;
+    }
+
+    // Start/Finish labels
+    if (isStart) {
+        svg += `<text x="50" y="62" text-anchor="middle" fill="white" font-size="10" font-weight="bold" font-family="sans-serif">СТАРТ</text>`;
+    }
+    if (isFinish) {
+        svg += `<text x="50" y="55" text-anchor="middle" fill="white" font-size="10" font-weight="bold" font-family="sans-serif">ФИНИШ</text>`;
+        if (state.gameMode === 'flag') {
+            svg += `<text x="50" y="78" text-anchor="middle" font-size="16">🚩</text>`;
+        }
+    }
+
+    svg += '</svg>';
+    return svg;
+}
+
+function initBoard() {
+    // Update start and finish positions based on board size
+    // For symmetrical field, start at top middle, finish at bottom middle
+    const middleCol = Math.floor(state.cols / 2);
+    state.startPos = { row: 0, col: middleCol };
+    state.finishPos = { row: state.rows - 1, col: middleCol };
+    
+    // Update CSS variables
+    document.documentElement.style.setProperty('--hex-size', state.hexSize + 'px');
+    document.documentElement.style.setProperty('--hex-gap-h', state.hexGapH + 'px');
+    document.documentElement.style.setProperty('--hex-gap-v', state.hexGapV + 'px');
+
+    state.board = [];
+    for (let r = 0; r < state.rows; r++) {
+        const row = [];
+        for (let c = 0; c < state.cols; c++) {
+            const shouldDisplay = shouldDisplayCell(r, c);
+            const isStart = shouldDisplay && r === state.startPos.row && c === state.startPos.col;
+            const isFinish = shouldDisplay && r === state.finishPos.row && c === state.finishPos.col;
+
+            row.push({
+                tileType: (isStart || isFinish) ? 0 : null,
+                rotation: 0,
+                isEmpty: !(isStart || isFinish),
+                isStart,
+                isFinish,
+                shouldDisplay
+            });
+        }
+        state.board.push(row);
+    }
+
+    // Adjust start position if it's not displayable
+    if (!state.board[state.startPos.row][state.startPos.col].shouldDisplay) {
+        // Find nearest displayable cell for start
+        for (let c = 0; c < state.cols; c++) {
+            if (state.board[state.startPos.row][c].shouldDisplay) {
+                state.startPos.col = c;
+                break;
+            }
+        }
+    }
+    
+    // Adjust finish position if it's not displayable
+    if (!state.board[state.finishPos.row][state.finishPos.col].shouldDisplay) {
+        // Find nearest displayable cell for finish
+        for (let c = 0; c < state.cols; c++) {
+            if (state.board[state.finishPos.row][c].shouldDisplay) {
+                state.finishPos.col = c;
+                break;
+            }
+        }
+    }
+
+    state.players = [
+        { row: state.startPos.row, col: state.startPos.col, hasFlag: false },
+        { row: state.startPos.row, col: state.startPos.col, hasFlag: false }
+    ];
+
+    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+    state.nextTileRotation = 0;
+    state.currentPlayer = 0;
+    state.phase = 'roll';
+    state.points = 0;
+    state.selectedAction = null;
+    state.selectedCell = null;
+
+    renderBoard();
+    renderNextTile();
+    updateUI();
+    updateStatus('Бросьте кубик, чтобы получить очки!');
+}
+
+function renderBoard() {
+    const boardEl = document.getElementById('board');
+    boardEl.innerHTML = '';
+
+    // Calculate board size with gaps
+    let maxX = 0, maxY = 0;
+    for (let r = 0; r < state.rows; r++) {
+        for (let c = 0; c < state.cols; c++) {
+            if (!state.board[r][c].shouldDisplay) continue;
+            const pos = getHexPosition(r, c);
+            maxX = Math.max(maxX, pos.x + state.hexSize + 10);
+            maxY = Math.max(maxY, pos.y + state.hexSize * 1.1547 + 10);
+        }
+    }
+    boardEl.style.width = maxX + 'px';
+    boardEl.style.height = maxY + 'px';
+
+    for (let r = 0; r < state.rows; r++) {
+        for (let c = 0; c < state.cols; c++) {
+            const cell = state.board[r][c];
+            
+            // Skip cells that shouldn't be displayed
+            if (!cell.shouldDisplay) continue;
+
+            const pos = getHexPosition(r, c);
+
+            const cellEl = document.createElement('div');
+            cellEl.className = 'hex-cell';
+            cellEl.style.left = pos.x + 'px';
+            cellEl.style.top = pos.y + 'px';
+            cellEl.dataset.row = r;
+            cellEl.dataset.col = c;
+
+            cellEl.innerHTML = createTileSVG(
+                cell.tileType,
+                cell.rotation,
+                cell.isStart,
+                cell.isFinish,
+                cell.isEmpty,
+                r, c
+            );
+
+            // Add index label
+            const labelEl = document.createElement('div');
+            labelEl.className = 'hex-cell-label';
+            labelEl.textContent = `${r},${c}`;
+            cellEl.appendChild(labelEl);
+
+            if (cell.isEmpty) {
+                cellEl.classList.add('empty-cell');
+            }
+
+            cellEl.addEventListener('click', () => handleCellClick(r, c));
+
+            // Add player tokens
+            for (let p = 0; p < state.numPlayers; p++) {
+                if (state.players[p].row === r && state.players[p].col === c) {
+                    const token = document.createElement('div');
+                    token.className = `player-token p${p + 1}`;
+                    if (state.players[p].hasFlag) token.classList.add('has-flag');
+                    if (p === state.currentPlayer) token.classList.add('current-turn');
+                    cellEl.appendChild(token);
+                }
+            }
+
+            boardEl.appendChild(cellEl);
+        }
+    }
+}
+
+function renderNextTile() {
+    const el = document.getElementById('next-tile');
+    el.innerHTML = createTileSVG(state.nextTileType, state.nextTileRotation, false, false, false, -1, -1);
+}
+
+function rotateNextTile(dir) {
+    state.nextTileRotation = ((state.nextTileRotation + dir) % 6 + 6) % 6;
+    renderNextTile();
+}
+
+function rollDice() {
+    if (state.phase !== 'roll') return;
+
+    const diceEl = document.getElementById('dice');
+    diceEl.classList.add('rolling');
+
+    let rolls = 0;
+    const rollInterval = setInterval(() => {
+        diceEl.textContent = Math.floor(Math.random() * 6) + 1;
+        rolls++;
+        if (rolls > 12) {
+            clearInterval(rollInterval);
+            const value = Math.floor(Math.random() * 6) + 1;
+            state.points = value;
+            diceEl.textContent = value;
+            diceEl.classList.remove('rolling');
+
+            state.phase = 'action';
+            updateUI();
+            updateStatus(`Выпало ${value}! Кликните на пустую клетку чтобы разместить тайл, или выберите действие.`);
+        }
+    }, 50);
+}
+
+function updateUI() {
+    document.getElementById('points-value').textContent = state.points;
+
+    const diceEl = document.getElementById('dice');
+    const rollBtn = document.getElementById('roll-btn');
+
+    if (state.phase === 'roll') {
+        diceEl.classList.remove('disabled');
+        rollBtn.disabled = false;
+    } else {
+        diceEl.classList.add('disabled');
+        rollBtn.disabled = true;
+    }
+
+    // Update action buttons
+    const player = state.players[state.currentPlayer];
+
+    document.getElementById('btn-move').disabled =
+        state.phase !== 'action' || state.points < COST.move || !canMoveAnywhere(player);
+
+    document.getElementById('btn-place-adj').disabled =
+        state.phase !== 'action' || state.points < COST.placeAdjacent || !hasAdjacentEmpty(player);
+
+    document.getElementById('btn-place-any').disabled =
+        state.phase !== 'action' || state.points < COST.placeAnywhere || !hasAnyEmpty();
+
+    document.getElementById('btn-replace-adj').disabled =
+        state.phase !== 'action' || state.points < COST.replaceAdjacent || !hasAdjacentReplaceable();
+
+    document.getElementById('btn-replace').disabled =
+        state.phase !== 'action' || state.points < COST.replace || !hasReplaceable();
+
+    document.getElementById('btn-end').disabled = state.phase !== 'action';
+
+    // Player sections
+    document.getElementById('player1-section').classList.toggle('active', state.currentPlayer === 0);
+    document.getElementById('player2-section').classList.toggle('active', state.currentPlayer === 1);
+    document.getElementById('player2-section').style.display = state.numPlayers > 1 ? 'flex' : 'none';
+
+    // Highlight selected action
+    document.querySelectorAll('.action-btn').forEach(btn => btn.classList.remove('selected'));
+    if (state.selectedAction) {
+        const btnId = {
+            'move': 'btn-move',
+            'placeAdjacent': 'btn-place-adj',
+            'placeAnywhere': 'btn-place-any',
+            'replaceAdjacent': 'btn-replace-adj',
+            'replace': 'btn-replace'
+        }[state.selectedAction];
+        if (btnId) document.getElementById(btnId).classList.add('selected');
+    }
+}
+
+function getNeighbors(row, col) {
+    const neighbors = [];
+    const isOddCol = col % 2 === 1;
+
+    // Flat-top hex neighbors - column offset layout
+    // Edge 0=top, 1=top-right, 2=bottom-right, 3=bottom, 4=bottom-left, 5=top-left
+    const offsets = isOddCol ? [
+        { dr: -1, dc: 0, edge: 0 },  // top
+        { dr: 0, dc: 1, edge: 1 },   // top-right
+        { dr: 1, dc: 1, edge: 2 },   // bottom-right
+        { dr: 1, dc: 0, edge: 3 },   // bottom
+        { dr: 1, dc: -1, edge: 4 },  // bottom-left
+        { dr: 0, dc: -1, edge: 5 },  // top-left
+    ] : [
+        { dr: -1, dc: 0, edge: 0 },  // top
+        { dr: -1, dc: 1, edge: 1 }, // top-right
+        { dr: 0, dc: 1, edge: 2 },   // bottom-right
+        { dr: 1, dc: 0, edge: 3 },   // bottom
+        { dr: 0, dc: -1, edge: 4 },  // bottom-left
+        { dr: -1, dc: -1, edge: 5 }, // top-left
+    ];
+
+    offsets.forEach(({ dr, dc, edge }) => {
+        const nr = row + dr;
+        const nc = col + dc;
+        if (nr >= 0 && nr < state.rows && nc >= 0 && nc < state.cols) {
+            if (state.board[nr][nc].shouldDisplay) {
+                neighbors.push({ row: nr, col: nc, edge });
+            }
+        }
+    });
+
+    return neighbors;
+}
+
+function hasPathToEdge(cell, edge) {
+    if (cell.isStart || cell.isFinish) return true; // Start/finish connect to all edges
+    if (cell.isEmpty || cell.tileType === null) return false;
+
+    const edges = rotateEdges(TILE_TYPES[cell.tileType], cell.rotation);
+    return edges.includes(edge);
+}
+
+function canMoveAnywhere(player) {
+    const cell = state.board[player.row][player.col];
+    const neighbors = getNeighbors(player.row, player.col);
+
+    return neighbors.some(n => {
+        const nCell = state.board[n.row][n.col];
+        if (nCell.isEmpty) return false;
+
+        const myEdge = n.edge;
+        const theirEdge = (myEdge + 3) % 6;
+
+        return hasPathToEdge(cell, myEdge) && hasPathToEdge(nCell, theirEdge);
+    });
+}
+
+function getValidMoves(player) {
+    const cell = state.board[player.row][player.col];
+    const neighbors = getNeighbors(player.row, player.col);
+    const valid = [];
+
+    neighbors.forEach(n => {
+        const nCell = state.board[n.row][n.col];
+        if (nCell.isEmpty) return;
+
+        const myEdge = n.edge;
+        const theirEdge = (myEdge + 3) % 6;
+
+        if (hasPathToEdge(cell, myEdge) && hasPathToEdge(nCell, theirEdge)) {
+            valid.push({ row: n.row, col: n.col });
+        }
+    });
+
+    return valid;
+}
+
+function hasAdjacentEmpty(player) {
+    const neighbors = getNeighbors(player.row, player.col);
+    return neighbors.some(n => state.board[n.row][n.col].isEmpty);
+}
+
+function getAdjacentEmpty(player) {
+    const neighbors = getNeighbors(player.row, player.col);
+    return neighbors.filter(n => state.board[n.row][n.col].isEmpty);
+}
+
+function hasAnyEmpty() {
+    for (let r = 0; r < state.rows; r++) {
+        for (let c = 0; c < state.cols; c++) {
+            if (state.board[r][c].shouldDisplay && state.board[r][c].isEmpty) return true;
+        }
+    }
+    return false;
+}
+
+function getAllEmpty() {
+    const empty = [];
+    for (let r = 0; r < state.rows; r++) {
+        for (let c = 0; c < state.cols; c++) {
+            if (state.board[r][c].shouldDisplay && state.board[r][c].isEmpty) empty.push({ row: r, col: c });
+        }
+    }
+    return empty;
+}
+
+function hasReplaceable() {
+    for (let r = 0; r < state.rows; r++) {
+        for (let c = 0; c < state.cols; c++) {
+            const cell = state.board[r][c];
+            if (cell.shouldDisplay && !cell.isEmpty && !cell.isStart && !cell.isFinish) return true;
+        }
+    }
+    return false;
+}
+
+function getReplaceable() {
+    const tiles = [];
+    for (let r = 0; r < state.rows; r++) {
+        for (let c = 0; c < state.cols; c++) {
+            const cell = state.board[r][c];
+            if (cell.shouldDisplay && !cell.isEmpty && !cell.isStart && !cell.isFinish) {
+                tiles.push({ row: r, col: c });
+            }
+        }
+    }
+    return tiles;
+}
+
+function hasAdjacentReplaceable() {
+    const player = state.players[state.currentPlayer];
+    const neighbors = getNeighbors(player.row, player.col);
+    return neighbors.some(n => {
+        const cell = state.board[n.row][n.col];
+        return !cell.isEmpty && !cell.isStart && !cell.isFinish;
+    });
+}
+
+function getAdjacentReplaceable() {
+    const player = state.players[state.currentPlayer];
+    const neighbors = getNeighbors(player.row, player.col);
+    return neighbors.filter(n => {
+        const cell = state.board[n.row][n.col];
+        return !cell.isEmpty && !cell.isStart && !cell.isFinish;
+    });
+}
+
+function selectAction(action) {
+    state.selectedAction = action;
+    state.selectedCell = null;
+    clearHighlights();
+
+    const player = state.players[state.currentPlayer];
+    let targets = [];
+
+    switch (action) {
+        case 'move':
+            targets = getValidMoves(player);
+            updateStatus('Выберите клетку для перемещения (1 очко)');
+            break;
+        case 'placeAdjacent':
+            targets = getAdjacentEmpty(player);
+            updateStatus('Выберите пустую клетку рядом с фишкой (2 очка)');
+            break;
+        case 'placeAnywhere':
+            targets = getAllEmpty();
+            updateStatus('Выберите любую пустую клетку (4 очка)');
+            break;
+        case 'replaceAdjacent':
+            targets = getAdjacentReplaceable();
+            updateStatus('Выберите соседний тайл для замены/поворота (5 очков)');
+            break;
+        case 'replace':
+            targets = getReplaceable();
+            updateStatus('Выберите любой тайл для замены/поворота (6 очков)');
+            break;
+    }
+
+    highlightCells(targets);
+    updateUI();
+}
+
+function highlightCells(cells) {
+    cells.forEach(cell => {
+        const el = document.querySelector(`.hex-cell[data-row="${cell.row}"][data-col="${cell.col}"]`);
+        if (el) el.classList.add('valid-target');
+    });
+}
+
+function clearHighlights() {
+    document.querySelectorAll('.hex-cell').forEach(el => {
+        el.classList.remove('valid-target', 'selected-cell');
+    });
+}
+
+function handleCellClick(row, col) {
+    if (state.phase !== 'action') {
+        updateStatus('Сначала бросьте кубик!');
+        return;
+    }
+
+    const player = state.players[state.currentPlayer];
+    const cell = state.board[row][col];
+
+    // Auto-select action based on clicked cell
+    if (!state.selectedAction) {
+        // Empty cell - try to place tile
+        if (cell.isEmpty) {
+            const isAdjacent = getAdjacentEmpty(player).some(c => c.row === row && c.col === col);
+
+            if (isAdjacent && state.points >= COST.placeAdjacent) {
+                state.selectedAction = 'placeAdjacent';
+            } else if (state.points >= COST.placeAnywhere) {
+                state.selectedAction = 'placeAnywhere';
+            } else {
+                updateStatus(`Недостаточно очков! Нужно ${isAdjacent ? 2 : 4}, есть ${state.points}`);
+                return;
+            }
+        }
+        // Non-empty cell - try to move or replace
+        else if (!cell.isStart && !cell.isFinish && state.points >= COST.replace) {
+            // Check if it's a valid move target
+            const validMoves = getValidMoves(player);
+            if (validMoves.some(c => c.row === row && c.col === col)) {
+                state.selectedAction = 'move';
+            } else {
+                state.selectedAction = 'replace';
+            }
+        }
+        // Try to move
+        else {
+            const validMoves = getValidMoves(player);
+            if (validMoves.some(c => c.row === row && c.col === col) && state.points >= COST.move) {
+                state.selectedAction = 'move';
+            } else {
+                updateStatus('Нельзя сюда переместиться или недостаточно очков');
+                return;
+            }
+        }
+        updateUI();
+    }
+
+    // Validate the action is possible on this cell
+    switch (state.selectedAction) {
+        case 'move':
+            // Check valid move
+            const validMoves2 = getValidMoves(player);
+            if (!validMoves2.some(c => c.row === row && c.col === col)) {
+                updateStatus('Нельзя сюда переместиться - нет соединённого пути');
+                state.selectedAction = null;
+                return;
+            }
+            // Move player
+            player.row = row;
+            player.col = col;
+            state.points -= COST.move;
+
+            // Check flag pickup
+            if (cell.isFinish && state.gameMode === 'flag' && !player.hasFlag) {
+                player.hasFlag = true;
+                updateStatus('🚩 Флаг подобран! Возвращайтесь на старт!');
+            }
+
+            // Check win
+            if (checkWin(player, cell)) {
+                renderBoard();
+                showWinModal();
+                return;
+            }
+
+            renderBoard();
+            state.selectedAction = null;
+            clearHighlights();
+            updateUI();
+
+            if (state.points > 0 && canMoveAnywhere(player)) {
+                updateStatus(`Осталось ${state.points} очков. Продолжайте или завершите ход.`);
+            } else if (state.points > 0) {
+                updateStatus(`Осталось ${state.points} очков.`);
+            } else {
+                endTurn();
+            }
+            break;
+
+        case 'placeAdjacent':
+            if (!cell.isEmpty) {
+                updateStatus('Эта клетка уже занята!');
+                state.selectedAction = null;
+                return;
+            }
+            // Place tile
+            state.board[row][col] = {
+                ...cell,
+                tileType: state.nextTileType,
+                rotation: state.nextTileRotation,
+                isEmpty: false
+            };
+
+            state.points -= COST.placeAdjacent;
+            state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+            state.nextTileRotation = 0;
+
+            renderBoard();
+            renderNextTile();
+            state.selectedAction = null;
+            clearHighlights();
+            updateUI();
+            updateStatus(`Тайл размещён! Осталось ${state.points} очков.`);
+
+            if (state.points <= 0) endTurn();
+            break;
+
+        case 'placeAnywhere':
+            if (!cell.isEmpty) {
+                updateStatus('Эта клетка уже занята!');
+                state.selectedAction = null;
+                return;
+            }
+            // Place tile
+            state.board[row][col] = {
+                ...cell,
+                tileType: state.nextTileType,
+                rotation: state.nextTileRotation,
+                isEmpty: false
+            };
+
+            state.points -= COST.placeAnywhere;
+            state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+            state.nextTileRotation = 0;
+
+            renderBoard();
+            renderNextTile();
+            state.selectedAction = null;
+            clearHighlights();
+            updateUI();
+            updateStatus(`Тайл размещён! Осталось ${state.points} очков.`);
+
+            if (state.points <= 0) endTurn();
+            break;
+
+        case 'replaceAdjacent':
+            // Check if adjacent
+            if (!getAdjacentReplaceable().some(c => c.row === row && c.col === col)) {
+                updateStatus('Этот тайл не рядом с вашей фишкой!');
+                state.selectedAction = null;
+                return;
+            }
+            state.selectedCell = { row, col };
+            state.replaceActionCost = COST.replaceAdjacent;
+            document.getElementById('replace-modal').classList.add('show');
+            break;
+
+        case 'replace':
+            // Show replace/rotate modal
+            state.selectedCell = { row, col };
+            state.replaceActionCost = COST.replace;
+            document.getElementById('replace-modal').classList.add('show');
+            break;
+    }
+}
+
+function doRotateTile() {
+    if (!state.selectedCell) return;
+
+    const { row, col } = state.selectedCell;
+    state.board[row][col].rotation = (state.board[row][col].rotation + 1) % 6;
+    state.points -= state.replaceActionCost || COST.replace;
+
+    document.getElementById('replace-modal').classList.remove('show');
+    state.selectedCell = null;
+    state.selectedAction = null;
+    clearHighlights();
+    renderBoard();
+    updateUI();
+    updateStatus(`Тайл повёрнут! Осталось ${state.points} очков.`);
+
+    if (state.points <= 0) endTurn();
+}
+
+function doReplaceTile() {
+    if (!state.selectedCell) return;
+
+    const { row, col } = state.selectedCell;
+    state.board[row][col].tileType = state.nextTileType;
+    state.board[row][col].rotation = state.nextTileRotation;
+    state.points -= state.replaceActionCost || COST.replace;
+
+    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+    state.nextTileRotation = 0;
+
+    document.getElementById('replace-modal').classList.remove('show');
+    state.selectedCell = null;
+    state.selectedAction = null;
+    clearHighlights();
+    renderBoard();
+    renderNextTile();
+    updateUI();
+    updateStatus(`Тайл заменён! Осталось ${state.points} очков.`);
+
+    if (state.points <= 0) endTurn();
+}
+
+function cancelReplace() {
+    document.getElementById('replace-modal').classList.remove('show');
+    state.selectedCell = null;
+}
+
+function checkWin(player, cell) {
+    if (state.gameMode === 'simple') {
+        return cell.isFinish;
+    } else {
+        return cell.isStart && player.hasFlag;
+    }
+}
+
+function showWinModal() {
+    document.getElementById('modal-title').textContent = '🎉 Победа!';
+    document.getElementById('modal-text').textContent =
+        state.numPlayers > 1
+            ? `Игрок ${state.currentPlayer + 1} победил!`
+            : 'Вы прошли лабиринт!';
+    document.getElementById('modal').classList.add('show');
+}
+
+function closeModal() {
+    document.getElementById('modal').classList.remove('show');
+    restartGame();
+}
+
+function endTurn() {
+    state.selectedAction = null;
+    state.selectedCell = null;
+    clearHighlights();
+
+    state.currentPlayer = (state.currentPlayer + 1) % state.numPlayers;
+    state.phase = 'roll';
+    state.points = 0;
+
+    document.getElementById('dice').textContent = '?';
+    updateUI();
+    updateStatus(`Игрок ${state.currentPlayer + 1}, бросьте кубик!`);
+}
+
+function updateStatus(text) {
+    document.getElementById('status').textContent = text;
+}
+
+function setGameMode(mode) {
+    state.gameMode = mode;
+    document.querySelectorAll('.mode-btn[data-mode]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+    restartGame();
+}
+
+function setPlayers(num) {
+    state.numPlayers = num;
+    document.querySelectorAll('.mode-btn[data-players]').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.players) === num);
+    });
+    restartGame();
+}
+
+function toggleSettings() {
+    const panel = document.getElementById('settings-panel');
+    if (panel.style.display === 'none' || panel.style.display === '') {
+        panel.style.display = 'block';
+        loadCurrentSettingsToPanel();
+    } else {
+        panel.style.display = 'none';
+    }
+}
+
+function loadCurrentSettingsToPanel() {
+    document.getElementById('cols-slider').value = state.cols;
+    document.getElementById('rows-slider').value = state.rows;
+    document.getElementById('gap-h-slider').value = state.hexGapH;
+    document.getElementById('gap-v-slider').value = state.hexGapV;
+    document.getElementById('size-slider').value = state.hexSize;
+    updateSettingDisplay();
+}
+
+function updateSettingDisplay() {
+    document.getElementById('cols-value').textContent = document.getElementById('cols-slider').value;
+    document.getElementById('rows-value').textContent = document.getElementById('rows-slider').value;
+    document.getElementById('gap-h-value').textContent = document.getElementById('gap-h-slider').value;
+    document.getElementById('gap-v-value').textContent = document.getElementById('gap-v-slider').value;
+    document.getElementById('size-value').textContent = document.getElementById('size-slider').value;
+}
+
+function applySettings() {
+    state.cols = parseInt(document.getElementById('cols-slider').value);
+    state.rows = parseInt(document.getElementById('rows-slider').value);
+    state.hexGapH = parseInt(document.getElementById('gap-h-slider').value);
+    state.hexGapV = parseInt(document.getElementById('gap-v-slider').value);
+    state.hexSize = parseInt(document.getElementById('size-slider').value);
+    
+    // Hide settings panel
+    document.getElementById('settings-panel').style.display = 'none';
+    
+    restartGame();
+}
+
+function resetSettings() {
+    document.getElementById('cols-slider').value = 7;
+    document.getElementById('rows-slider').value = 7;
+    document.getElementById('gap-h-slider').value = 0;
+    document.getElementById('gap-v-slider').value = 0;
+    document.getElementById('size-slider').value = 55;
+    updateSettingDisplay();
+}
+
+function restartGame() {
+    initBoard();
+}
+
+// Dark mode
+if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.documentElement.classList.add('dark');
+}
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+    document.documentElement.classList.toggle('dark', e.matches);
+});
+
+// Init
+initBoard();
