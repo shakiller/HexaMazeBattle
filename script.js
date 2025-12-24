@@ -761,9 +761,18 @@ function handleCellClick(row, col) {
             break;
 
         case 'placeAdjacent':
+            // Проверяем, что клетка пустая и соседняя
             if (!cell.isEmpty) {
                 updateStatus('Эта клетка уже занята!');
                 state.selectedAction = null;
+                return;
+            }
+            // Проверяем, что клетка действительно соседняя
+            const adjacentEmpty = getAdjacentEmpty(player);
+            if (!adjacentEmpty.some(c => c.row === row && c.col === col)) {
+                updateStatus('Можно размещать только в соседние пустые клетки!');
+                state.selectedAction = null;
+                clearHighlights();
                 return;
             }
             // Place tile
@@ -775,13 +784,17 @@ function handleCellClick(row, col) {
             };
 
             state.points -= COST.placeAdjacent;
-            // Новый тайл генерируется только при броске кубика, здесь не обновляем
+            
+            // Генерируем новый тайл после размещения
+            state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+            state.nextTileRotation = 0;
+            renderNextTile();
 
             renderBoard();
             state.selectedAction = null;
             clearHighlights();
             updateUI();
-            updateStatus(`Тайл размещён! Осталось ${state.points} очков.`);
+            updateStatus(`Тайл размещён рядом с фишкой! Осталось ${state.points} очков.`);
 
             if (state.points <= 0) endTurn();
             break;
@@ -801,13 +814,17 @@ function handleCellClick(row, col) {
             };
 
             state.points -= COST.placeAnywhere;
-            // Новый тайл генерируется только при броске кубика, здесь не обновляем
+            
+            // Генерируем новый тайл после размещения
+            state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+            state.nextTileRotation = 0;
+            renderNextTile();
 
             renderBoard();
             state.selectedAction = null;
             clearHighlights();
             updateUI();
-            updateStatus(`Тайл размещён! Осталось ${state.points} очков.`);
+            updateStatus(`Тайл размещён в любом месте! Осталось ${state.points} очков.`);
 
             if (state.points <= 0) endTurn();
             break;
@@ -859,8 +876,9 @@ function doReplaceTile() {
     state.board[row][col].rotation = state.nextTileRotation;
     state.points -= state.replaceActionCost || COST.replace;
 
-    // Новый тайл генерируется только при броске кубика
-    // Здесь не обновляем state.nextTileType
+    // Генерируем новый тайл после замены
+    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+    state.nextTileRotation = 0;
 
     document.getElementById('replace-modal').classList.remove('show');
     state.selectedCell = null;
@@ -916,6 +934,11 @@ function endTurn() {
     state.currentPlayer = (state.currentPlayer + 1) % state.numPlayers;
     state.phase = 'roll';
     state.points = 0;
+
+    // Генерируем новый тайл при начале нового хода
+    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+    state.nextTileRotation = 0;
+    renderNextTile();
 
     document.getElementById('dice').textContent = '?';
     updateUI();
