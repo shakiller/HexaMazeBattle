@@ -31,6 +31,22 @@ const state = {
     lastTilePlacement: null // Новое поле для хранения последнего размещения тайла
 };
 
+// Цвета игроков
+const PLAYER_COLORS = [
+    { // Игрок 1
+        primary: '#3b82f6',    // Синий
+        light: '#60a5fa',      // Светло-синий
+        dark: '#1d4ed8',       // Темно-синий
+        text: '#ffffff'        // Белый текст
+    },
+    { // Игрок 2
+        primary: '#ef4444',    // Красный
+        light: '#f87171',      // Светло-красный
+        dark: '#dc2626',       // Темно-красный
+        text: '#ffffff'        // Белый текст
+    }
+];
+
 // Tile types: each has edges array showing which sides have openings
 // Edges: 0=top, 1=top-right, 2=bottom-right, 3=bottom, 4=bottom-left, 5=top-left
 const TILE_TYPES = [
@@ -175,13 +191,24 @@ function createTileSVG(tileType, rotation, startForPlayer, finishForPlayer, isEm
 
     let fillColor = isEmpty ? '#1a2332' : '#1e3a5f';
     let strokeColor = isEmpty ? '#334155' : '#0ea5e9';
+    let textColor = '#ffffff';
 
     // Определяем, является ли ячейка стартом или финишем какого-либо игрока
     const isStart = startForPlayer !== -1;
     const isFinish = finishForPlayer !== -1;
 
-    if (isStart) { fillColor = '#166534'; strokeColor = '#22c55e'; }
-    if (isFinish) { fillColor = '#7f1d1d'; strokeColor = '#ef4444'; }
+    if (isStart) {
+        const playerColor = PLAYER_COLORS[startForPlayer];
+        fillColor = playerColor.primary;
+        strokeColor = playerColor.dark;
+        textColor = playerColor.text;
+    }
+    if (isFinish) {
+        const playerColor = PLAYER_COLORS[finishForPlayer];
+        fillColor = playerColor.light;
+        strokeColor = playerColor.dark;
+        textColor = playerColor.text;
+    }
 
     let svg = `<svg viewBox="0 0 100 115.4" xmlns="http://www.w3.org/2000/svg">
     <polygon points="${hexPoints}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2.5"/>`;
@@ -224,14 +251,38 @@ function createTileSVG(tileType, rotation, startForPlayer, finishForPlayer, isEm
     // Start/Finish labels
     if (isStart) {
         const playerNum = startForPlayer + 1;
-        svg += `<text x="50" y="62" text-anchor="middle" fill="white" font-size="10" font-weight="bold" font-family="sans-serif">СТАРТ${playerNum}</text>`;
+        const playerColor = PLAYER_COLORS[startForPlayer];
+        
+        // Добавляем фон для лучшей читаемости текста
+        svg += `<circle cx="50" cy="57.7" r="20" fill="${playerColor.primary}" opacity="0.7"/>`;
+        svg += `<text x="50" y="62" text-anchor="middle" fill="${playerColor.text}" font-size="10" font-weight="bold" font-family="sans-serif">СТАРТ${playerNum}</text>`;
+        
+        // Добавляем иконку игрока
+        svg += `<circle cx="50" cy="45" r="6" fill="${playerColor.text}"/>`;
     }
     if (isFinish) {
         const playerNum = finishForPlayer + 1;
-        svg += `<text x="50" y="55" text-anchor="middle" fill="white" font-size="10" font-weight="bold" font-family="sans-serif">ФИНИШ${playerNum}</text>`;
+        const playerColor = PLAYER_COLORS[finishForPlayer];
+        
+        // Добавляем фон для лучшей читаемости текста
+        svg += `<circle cx="50" cy="57.7" r="20" fill="${playerColor.light}" opacity="0.7"/>`;
+        svg += `<text x="50" y="55" text-anchor="middle" fill="${playerColor.text}" font-size="10" font-weight="bold" font-family="sans-serif">ФИНИШ${playerNum}</text>`;
+        
         if (state.gameMode === 'flag') {
             svg += `<text x="50" y="78" text-anchor="middle" font-size="16">🚩</text>`;
         }
+        
+        // Добавляем иконку финиша (флажок)
+        svg += `<path d="M47,45 L53,45 L53,50 L50,48 L47,50 Z" fill="${playerColor.text}"/>`;
+    }
+
+    // Если ячейка и старт и финиш (для одного игрока в режиме одного игрока)
+    if (isStart && isFinish && startForPlayer === finishForPlayer) {
+        const playerNum = startForPlayer + 1;
+        const playerColor = PLAYER_COLORS[startForPlayer];
+        
+        svg += `<circle cx="50" cy="57.7" r="20" fill="${playerColor.primary}" opacity="0.7"/>`;
+        svg += `<text x="50" y="55" text-anchor="middle" fill="${playerColor.text}" font-size="8" font-weight="bold" font-family="sans-serif">СТАРТ/ФИНИШ${playerNum}</text>`;
     }
 
     svg += '</svg>';
@@ -487,6 +538,20 @@ function updateUI() {
             'replace': 'btn-replace'
         }[state.selectedAction];
         if (btnId) document.getElementById(btnId).classList.add('selected');
+    }
+    
+    // Обновляем заголовки игроков с цветами
+    const player1Title = document.querySelector('#player1-section .player-title');
+    const player2Title = document.querySelector('#player2-section .player-title');
+    
+    if (player1Title) {
+        player1Title.style.color = PLAYER_COLORS[0].primary;
+        player1Title.textContent = 'Игрок 1';
+    }
+    
+    if (player2Title) {
+        player2Title.style.color = PLAYER_COLORS[1].primary;
+        player2Title.textContent = 'Игрок 2';
     }
 }
 
@@ -1002,11 +1067,19 @@ function checkWin(player, cell) {
 }
 
 function showWinModal() {
+    const playerColor = PLAYER_COLORS[state.currentPlayer];
+    
     document.getElementById('modal-title').textContent = '🎉 Победа!';
-    document.getElementById('modal-text').textContent =
-        state.numPlayers > 1
-            ? `Игрок ${state.currentPlayer + 1} победил!`
-            : 'Вы прошли лабиринт!';
+    document.getElementById('modal-title').style.color = playerColor.primary;
+    
+    if (state.numPlayers > 1) {
+        document.getElementById('modal-text').innerHTML = 
+            `<span style="color: ${playerColor.primary}; font-weight: bold;">Игрок ${state.currentPlayer + 1}</span> победил!`;
+    } else {
+        document.getElementById('modal-text').innerHTML = 
+            `<span style="color: ${playerColor.primary}; font-weight: bold;">Вы прошли лабиринт!</span>`;
+    }
+    
     document.getElementById('modal').classList.add('show');
 }
 
