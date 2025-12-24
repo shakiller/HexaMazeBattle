@@ -399,12 +399,12 @@ h1 {
 
 .player-token.p1 {
   background: var(--player1-color);
-  box-shadow: 0 0 15px var(--player1-color), 0 0 30px var(--player1-color);
+  box-shadow: 0 0 10px var(--player1-color), 0 0 20px var(--player1-color);
 }
 .player-token.p2 {
   background: var(--player2-color);
   margin-left: 8px;
-  box-shadow: 0 0 15px var(--player2-color), 0 0 30px var(--player2-color);
+  box-shadow: 0 0 10px var(--player2-color), 0 0 20px var(--player2-color);
 }
 
 .player-token.current-turn {
