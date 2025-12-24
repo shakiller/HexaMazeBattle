@@ -146,7 +146,7 @@ function getHexPosition(row, col) {
 }
 
 // Get center point of an edge for drawing paths
-function getEdgePoint(edge, radius = 42) {
+function getEdgePoint(edge, radius = 38) {
     // For flat-top hex: edge 0 = top, going clockwise
     const angles = [
         -90,   // 0: top
@@ -189,24 +189,35 @@ function createTileSVG(tileType, rotation, startForPlayer, finishForPlayer, isEm
     if (!isEmpty && tileType !== null) {
         const edges = rotateEdges(TILE_TYPES[tileType], rotation);
         const cx = 50, cy = 57.7;
-
-        // Draw path shadow
+        
+        // Более короткий радиус для путей, чтобы не выходить за пределы гексагона
+        const pathRadius = 38; // Уменьшен с 48
+        
+        // Углы для плоских шестиугольников
+        const angles = [-90, -30, 30, 90, 150, 210].map(deg => deg * Math.PI / 180);
+        
+        // Рисуем пути
         edges.forEach(edge => {
-            const p = getEdgePoint(edge, 48);
-            svg += `<line x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}"
-                    stroke="#1a1a2e" stroke-width="18" stroke-linecap="round"/>`;
+            const angle = angles[edge];
+            const startRadius = 12; // Начинаем не от центра, а немного отступив
+            const endRadius = pathRadius; // Заканчиваем не у самого края
+            
+            const x1 = cx + startRadius * Math.cos(angle);
+            const y1 = cy + startRadius * Math.sin(angle);
+            const x2 = cx + endRadius * Math.cos(angle);
+            const y2 = cy + endRadius * Math.sin(angle);
+            
+            // Основная линия пути - яркий жёлтый, без обводки и скруглений
+            svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+                    stroke="#fbbf24" stroke-width="12" stroke-linecap="butt"/>`;
         });
 
-        // Draw path main - яркий жёлтый
-        edges.forEach(edge => {
-            const p = getEdgePoint(edge, 48);
-            svg += `<line x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}"
-                    stroke="#fbbf24" stroke-width="14" stroke-linecap="round"/>`;
-        });
-
-        // Center hub
-        svg += `<circle cx="${cx}" cy="${cy}" r="10" fill="#fbbf24"/>`;
-        svg += `<circle cx="${cx}" cy="${cy}" r="5" fill="#fef3c7"/>`;
+        // Центральный узел - уменьшен
+        svg += `<circle cx="${cx}" cy="${cy}" r="8" fill="#fbbf24"/>`;
+        svg += `<circle cx="${cx}" cy="${cy}" r="4" fill="#fef3c7"/>`;
+        
+        // Дополнительная центральная точка для лучшей видимости соединений
+        svg += `<circle cx="${cx}" cy="${cy}" r="2" fill="#ffffff" opacity="0.5"/>`;
     }
 
     // Start/Finish labels
