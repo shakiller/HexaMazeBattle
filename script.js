@@ -27,7 +27,8 @@ const state = {
     nextTileType: 0,
     nextTileRotation: 0,
     startPos: [{ row: 0, col: 0 }, { row: 0, col: 8 }],
-    finishPos: [{ row: 8, col: 8 }, { row: 8, col: 0 }]
+    finishPos: [{ row: 8, col: 8 }, { row: 8, col: 0 }],
+    lastTilePlacement: null // Новое поле для хранения последнего размещения тайла
 };
 
 // Tile types: each has edges array showing which sides have openings
@@ -315,6 +316,7 @@ function initBoard() {
     state.points = 0;
     state.selectedAction = null;
     state.selectedCell = null;
+    state.lastTilePlacement = null; // Сбрасываем последнее размещение
 
     renderBoard();
     renderNextTile();
@@ -464,6 +466,10 @@ function updateUI() {
         state.phase !== 'action' || state.points < COST.replace || !hasReplaceable();
 
     document.getElementById('btn-end').disabled = state.phase !== 'action';
+    
+    // Кнопка отмены последнего действия
+    document.getElementById('btn-undo').disabled = 
+        state.phase !== 'action' || state.lastTilePlacement === null || state.points <= 0;
 
     // Player sections
     document.getElementById('player1-section').classList.toggle('active', state.currentPlayer === 0);
@@ -786,6 +792,17 @@ function handleCellClick(row, col) {
                 clearHighlights();
                 return;
             }
+            // Сохраняем информацию о размещении для возможной отмены
+            state.lastTilePlacement = {
+                action: 'placeAdjacent',
+                row: row,
+                col: col,
+                previousCellState: { ...cell },
+                pointsUsed: COST.placeAdjacent,
+                nextTileTypeBefore: state.nextTileType,
+                nextTileRotationBefore: state.nextTileRotation
+            };
+            
             // Place tile
             state.board[row][col] = {
                 ...cell,
@@ -805,7 +822,7 @@ function handleCellClick(row, col) {
             state.selectedAction = null;
             clearHighlights();
             updateUI();
-            updateStatus(`Тайл размещён рядом с фишкой! Осталось ${state.points} очков.`);
+            updateStatus(`Тайл размещён рядом с фишкой! Осталось ${state.points} очков. Нажмите "Отмена" чтобы убрать тайл.`);
 
             if (state.points <= 0) endTurn();
             break;
@@ -816,6 +833,17 @@ function handleCellClick(row, col) {
                 state.selectedAction = null;
                 return;
             }
+            // Сохраняем информацию о размещении для возможной отмены
+            state.lastTilePlacement = {
+                action: 'placeAnywhere',
+                row: row,
+                col: col,
+                previousCellState: { ...cell },
+                pointsUsed: COST.placeAnywhere,
+                nextTileTypeBefore: state.nextTileType,
+                nextTileRotationBefore: state.nextTileRotation
+            };
+            
             // Place tile
             state.board[row][col] = {
                 ...cell,
@@ -835,7 +863,7 @@ function handleCellClick(row, col) {
             state.selectedAction = null;
             clearHighlights();
             updateUI();
-            updateStatus(`Тайл размещён в любом месте! Осталось ${state.points} очков.`);
+            updateStatus(`Тайл размещён в любом месте! Осталось ${state.points} очков. Нажмите "Отмена" чтобы убрать тайл.`);
 
             if (state.points <= 0) endTurn();
             break;
@@ -861,6 +889,44 @@ function handleCellClick(row, col) {
     }
 }
 
+// Функция для отмены последнего размещения тайла
+function undoLastPlacement() {
+    if (state.lastTilePlacement === null) {
+        updateStatus('Нечего отменять!');
+        return;
+    }
+
+    if (state.phase !== 'action') {
+        updateStatus('Можно отменять только во время хода!');
+        return;
+    }
+
+    const placement = state.lastTilePlacement;
+    
+    // Проверяем, что у игрока достаточно очков для отмены (вернуть очки)
+    if (state.points + placement.pointsUsed <= 6) {
+        // Возвращаем предыдущее состояние клетки
+        state.board[placement.row][placement.col] = placement.previousCellState;
+        
+        // Возвращаем очки
+        state.points += placement.pointsUsed;
+        
+        // Возвращаем предыдущий тайл (если он был изменен)
+        state.nextTileType = placement.nextTileTypeBefore;
+        state.nextTileRotation = placement.nextTileRotationBefore;
+        
+        // Сбрасываем запись о последнем размещении
+        state.lastTilePlacement = null;
+        
+        renderBoard();
+        renderNextTile();
+        updateUI();
+        updateStatus('Последнее размещение тайла отменено!');
+    } else {
+        updateStatus('Нельзя отменить - превысит максимальное количество очков!');
+    }
+}
+
 function doRotateTile() {
     if (!state.selectedCell) return;
 
@@ -883,6 +949,18 @@ function doReplaceTile() {
     if (!state.selectedCell) return;
 
     const { row, col } = state.selectedCell;
+    
+    // Сохраняем информацию для возможной отмены
+    state.lastTilePlacement = {
+        action: 'replace',
+        row: row,
+        col: col,
+        previousCellState: { ...state.board[row][col] },
+        pointsUsed: state.replaceActionCost || COST.replace,
+        nextTileTypeBefore: state.nextTileType,
+        nextTileRotationBefore: state.nextTileRotation
+    };
+    
     state.board[row][col].tileType = state.nextTileType;
     state.board[row][col].rotation = state.nextTileRotation;
     state.points -= state.replaceActionCost || COST.replace;
@@ -898,7 +976,7 @@ function doReplaceTile() {
     renderBoard();
     renderNextTile();
     updateUI();
-    updateStatus(`Тайл заменён! Осталось ${state.points} очков.`);
+    updateStatus(`Тайл заменён! Осталось ${state.points} очков. Нажмите "Отмена" чтобы вернуть старый тайл.`);
 
     if (state.points <= 0) endTurn();
 }
@@ -940,6 +1018,7 @@ function closeModal() {
 function endTurn() {
     state.selectedAction = null;
     state.selectedCell = null;
+    state.lastTilePlacement = null; // Сбрасываем последнее размещение при завершении хода
     clearHighlights();
 
     state.currentPlayer = (state.currentPlayer + 1) % state.numPlayers;
@@ -1037,6 +1116,9 @@ if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').match
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
     document.documentElement.classList.toggle('dark', e.matches);
 });
+
+// Добавляем обработчик для кнопки отмены
+document.getElementById('btn-undo').addEventListener('click', undoLastPlacement);
 
 // Init
 initBoard();
