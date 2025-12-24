@@ -24,23 +24,23 @@
     <div class="settings-panel" id="settings-panel">
         <div class="setting-row">
             <label>Ширина поля (столбцов):</label>
-            <input type="range" id="cols-slider" min="3" max="15" value="7" oninput="updateSettingDisplay()">
-            <span id="cols-value">7</span>
+            <input type="range" id="cols-slider" min="3" max="15" value="9" oninput="updateSettingDisplay()">
+            <span id="cols-value">9</span>
         </div>
         <div class="setting-row">
             <label>Высота поля (строк):</label>
-            <input type="range" id="rows-slider" min="3" max="15" value="7" oninput="updateSettingDisplay()">
-            <span id="rows-value">7</span>
+            <input type="range" id="rows-slider" min="3" max="15" value="9" oninput="updateSettingDisplay()">
+            <span id="rows-value">9</span>
         </div>
         <div class="setting-row">
             <label>Горизонтальный отступ:</label>
-            <input type="range" id="gap-h-slider" min="-20" max="30" value="0" oninput="updateSettingDisplay()">
-            <span id="gap-h-value">0</span>px
+            <input type="range" id="gap-h-slider" min="-20" max="30" value="-3" oninput="updateSettingDisplay()">
+            <span id="gap-h-value">-3</span>px
         </div>
         <div class="setting-row">
             <label>Вертикальный отступ:</label>
-            <input type="range" id="gap-v-slider" min="-20" max="30" value="0" oninput="updateSettingDisplay()">
-            <span id="gap-v-value">0</span>px
+            <input type="range" id="gap-v-slider" min="-20" max="30" value="-19" oninput="updateSettingDisplay()">
+            <span id="gap-v-value">-19</span>px
         </div>
         <div class="setting-row">
             <label>Размер ячейки:</label>
@@ -53,6 +53,7 @@
         </div>
     </div>
 
+    <!-- Остальная часть HTML без изменений -->
     <div class="top-panel">
         <div class="player-section player1 active" id="player1-section">
             <div class="player-token-preview"></div>
