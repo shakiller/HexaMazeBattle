@@ -8,14 +8,14 @@ const COST = {
 
 const state = {
     board: [],
-    rows: 7,
-    cols: 7,
+    rows: 9,  // Изменено с 7 на 9
+    cols: 9,  // Изменено с 7 на 9
     hexSize: 55,
-    hexGapH: 0,
-    hexGapV: 0,
+    hexGapH: -3,  // Изменено с 0 на -3
+    hexGapV: -19, // Изменено с 0 на -19
     players: [
-        { row: 0, col: 3, hasFlag: false },
-        { row: 0, col: 3, hasFlag: false }
+        { row: 0, col: 4, hasFlag: false },
+        { row: 0, col: 4, hasFlag: false }
     ],
     currentPlayer: 0,
     numPlayers: 1,
@@ -26,8 +26,8 @@ const state = {
     selectedCell: null,
     nextTileType: 0,
     nextTileRotation: 0,
-    startPos: { row: 0, col: 3 },
-    finishPos: { row: 6, col: 3 }
+    startPos: { row: 0, col: 4 },
+    finishPos: { row: 8, col: 4 }
 };
 
 // Tile types: each has edges array showing which sides have openings
@@ -49,32 +49,33 @@ function rotateEdges(edges, rotation) {
     return edges.map(edge => (edge + r) % 6);
 }
 
-// Function to determine if a cell should be visible (for symmetrical field)
+// Функция для определения, какие ячейки нужно скрыть для симметричного поля
 function shouldDisplayCell(row, col) {
-    // For even number of rows, we need to make field symmetrical
-    if (state.rows % 2 === 0) {
-        // If even number of rows, remove cells from bottom row that would break symmetry
-        // In hexagonal grid with flat-top orientation, cells in odd columns are shifted down
-        // So to make it symmetrical, we need to remove cells from bottom row in columns
-        // that would make the field asymmetric
-        
-        // For even rows, bottom row is state.rows-1
-        // We need to remove cells in columns where (col % 2 === 1) in the bottom row
-        if (row === state.rows - 1 && col % 2 === 1) {
+    const lastRow = state.rows - 1;
+    
+    // Для нечетного количества строк (9, 11, 13 и т.д.)
+    // Скрываем ячейки в последнем ряду с нечетными столбцами
+    if (state.rows % 2 === 1) {
+        // Для 9 рядов: скрыть (8,1), (8,3), (8,5), (8,7)
+        if (row === lastRow && col % 2 === 1) {
             return false;
         }
-        
-        // Also for top row when rows is even? Let's check symmetry
-        // Actually for proper symmetry, we might need to remove from top row too
-        // But let's start with bottom row only and see
     }
     
-    // For odd number of rows, field is naturally more symmetrical
-    // But we still might need to adjust for very small fields
-    if (state.rows === 3 && state.cols > 4) {
-        // For 3 rows, remove corner cells to make it more playable
+    // Для четного количества строк (8, 10, 12 и т.д.)
+    // Скрываем ячейки в последнем ряду с нечетными столбцами
+    if (state.rows % 2 === 0) {
+        // Для 8 рядов: скрыть (7,1), (7,3), (7,5), (7,7)
+        if (row === lastRow && col % 2 === 1) {
+            return false;
+        }
+    }
+    
+    // Для очень маленьких полей можно добавить дополнительные правила
+    if (state.rows <= 3 && state.cols > 4) {
+        // Для полей с 3 строками или меньше
         if (row === 0 && (col === 0 || col === state.cols - 1)) return false;
-        if (row === 2 && (col === 0 || col === state.cols - 1)) return false;
+        if (row === lastRow && (col === 0 || col === state.cols - 1)) return false;
     }
     
     return true;
@@ -910,12 +911,13 @@ function applySettings() {
 }
 
 function resetSettings() {
-    document.getElementById('cols-slider').value = 7;
-    document.getElementById('rows-slider').value = 7;
-    document.getElementById('gap-h-slider').value = 0;
-    document.getElementById('gap-v-slider').value = 0;
+    document.getElementById('cols-slider').value = 9;
+    document.getElementById('rows-slider').value = 9;
+    document.getElementById('gap-h-slider').value = -3;
+    document.getElementById('gap-v-slider').value = -19;
     document.getElementById('size-slider').value = 55;
     updateSettingDisplay();
+    applySettings();
 }
 
 function restartGame() {
