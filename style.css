@@ -386,8 +386,8 @@ h1 {
 
 .player-token {
   position: absolute;
-  width: 24px;
-  height: 24px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   border: 3px solid white;
   top: 50%;
