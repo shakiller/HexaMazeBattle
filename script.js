@@ -8,14 +8,14 @@ const COST = {
 
 const state = {
     board: [],
-    rows: 9,  // Изменено с 7 на 9
-    cols: 9,  // Изменено с 7 на 9
+    rows: 9,
+    cols: 9,
     hexSize: 55,
-    hexGapH: -3,  // Изменено с 0 на -3
-    hexGapV: -19, // Изменено с 0 на -19
+    hexGapH: -3,
+    hexGapV: -19,
     players: [
-        { row: 0, col: 4, hasFlag: false },
-        { row: 0, col: 4, hasFlag: false }
+        { row: 0, col: 0, hasFlag: false },
+        { row: 0, col: 8, hasFlag: false }
     ],
     currentPlayer: 0,
     numPlayers: 1,
@@ -26,8 +26,8 @@ const state = {
     selectedCell: null,
     nextTileType: 0,
     nextTileRotation: 0,
-    startPos: { row: 0, col: 4 },
-    finishPos: { row: 8, col: 4 }
+    startPos: [{ row: 0, col: 0 }, { row: 0, col: 8 }],
+    finishPos: [{ row: 8, col: 8 }, { row: 8, col: 0 }]
 };
 
 // Tile types: each has edges array showing which sides have openings
@@ -81,6 +81,50 @@ function shouldDisplayCell(row, col) {
     return true;
 }
 
+// Находим угловые ячейки
+function findCornerCells() {
+    const corners = {
+        topLeft: null,
+        topRight: null,
+        bottomLeft: null,
+        bottomRight: null
+    };
+
+    // Верхний левый угол: первая отображаемая ячейка в первой строке
+    for (let c = 0; c < state.cols; c++) {
+        if (state.board[0][c].shouldDisplay) {
+            corners.topLeft = { row: 0, col: c };
+            break;
+        }
+    }
+
+    // Верхний правый угол: первая отображаемая ячейка в первой строке с конца
+    for (let c = state.cols - 1; c >= 0; c--) {
+        if (state.board[0][c].shouldDisplay) {
+            corners.topRight = { row: 0, col: c };
+            break;
+        }
+    }
+
+    // Нижний левый угол: первая отображаемая ячейка в последней строке
+    for (let c = 0; c < state.cols; c++) {
+        if (state.board[state.rows - 1][c].shouldDisplay) {
+            corners.bottomLeft = { row: state.rows - 1, col: c };
+            break;
+        }
+    }
+
+    // Нижний правый угол: первая отображаемая ячейка в последней строке с конца
+    for (let c = state.cols - 1; c >= 0; c--) {
+        if (state.board[state.rows - 1][c].shouldDisplay) {
+            corners.bottomRight = { row: state.rows - 1, col: c };
+            break;
+        }
+    }
+
+    return corners;
+}
+
 // Hex grid positioning - flat-top hexagon layout with separate horizontal and vertical gaps
 function getHexPosition(row, col) {
     const size = state.hexSize;
@@ -119,7 +163,7 @@ function getEdgePoint(edge, radius = 42) {
     };
 }
 
-function createTileSVG(tileType, rotation, isStart, isFinish, isEmpty, row, col) {
+function createTileSVG(tileType, rotation, startForPlayer, finishForPlayer, isEmpty, row, col) {
     // Flat-top hexagon
     const points = [];
     for (let i = 0; i < 6; i++) {
@@ -130,6 +174,10 @@ function createTileSVG(tileType, rotation, isStart, isFinish, isEmpty, row, col)
 
     let fillColor = isEmpty ? '#1a2332' : '#1e3a5f';
     let strokeColor = isEmpty ? '#334155' : '#0ea5e9';
+
+    // Определяем, является ли ячейка стартом или финишем какого-либо игрока
+    const isStart = startForPlayer !== -1;
+    const isFinish = finishForPlayer !== -1;
 
     if (isStart) { fillColor = '#166534'; strokeColor = '#22c55e'; }
     if (isFinish) { fillColor = '#7f1d1d'; strokeColor = '#ef4444'; }
@@ -163,10 +211,12 @@ function createTileSVG(tileType, rotation, isStart, isFinish, isEmpty, row, col)
 
     // Start/Finish labels
     if (isStart) {
-        svg += `<text x="50" y="62" text-anchor="middle" fill="white" font-size="10" font-weight="bold" font-family="sans-serif">СТАРТ</text>`;
+        const playerNum = startForPlayer + 1;
+        svg += `<text x="50" y="62" text-anchor="middle" fill="white" font-size="10" font-weight="bold" font-family="sans-serif">СТАРТ${playerNum}</text>`;
     }
     if (isFinish) {
-        svg += `<text x="50" y="55" text-anchor="middle" fill="white" font-size="10" font-weight="bold" font-family="sans-serif">ФИНИШ</text>`;
+        const playerNum = finishForPlayer + 1;
+        svg += `<text x="50" y="55" text-anchor="middle" fill="white" font-size="10" font-weight="bold" font-family="sans-serif">ФИНИШ${playerNum}</text>`;
         if (state.gameMode === 'flag') {
             svg += `<text x="50" y="78" text-anchor="middle" font-size="16">🚩</text>`;
         }
@@ -178,10 +228,7 @@ function createTileSVG(tileType, rotation, isStart, isFinish, isEmpty, row, col)
 
 function initBoard() {
     // Update start and finish positions based on board size
-    // For symmetrical field, start at top middle, finish at bottom middle
-    const middleCol = Math.floor(state.cols / 2);
-    state.startPos = { row: 0, col: middleCol };
-    state.finishPos = { row: state.rows - 1, col: middleCol };
+    // For symmetrical field, start at top corners, finish at bottom corners
     
     // Update CSS variables
     document.documentElement.style.setProperty('--hex-size', state.hexSize + 'px');
@@ -193,50 +240,65 @@ function initBoard() {
         const row = [];
         for (let c = 0; c < state.cols; c++) {
             const shouldDisplay = shouldDisplayCell(r, c);
-            const isStart = shouldDisplay && r === state.startPos.row && c === state.startPos.col;
-            const isFinish = shouldDisplay && r === state.finishPos.row && c === state.finishPos.col;
-
             row.push({
-                tileType: (isStart || isFinish) ? 0 : null,
+                tileType: null,
                 rotation: 0,
-                isEmpty: !(isStart || isFinish),
-                isStart,
-                isFinish,
+                isEmpty: true,
+                startForPlayer: -1,
+                finishForPlayer: -1,
                 shouldDisplay
             });
         }
         state.board.push(row);
     }
 
-    // Adjust start position if it's not displayable
-    if (!state.board[state.startPos.row][state.startPos.col].shouldDisplay) {
-        // Find nearest displayable cell for start
-        for (let c = 0; c < state.cols; c++) {
-            if (state.board[state.startPos.row][c].shouldDisplay) {
-                state.startPos.col = c;
-                break;
-            }
-        }
+    // Find corner cells
+    const corners = findCornerCells();
+
+    // Set start and finish positions based on number of players
+    if (state.numPlayers === 1) {
+        state.startPos[0] = corners.topLeft || { row: 0, col: 0 };
+        state.finishPos[0] = corners.bottomRight || { row: state.rows - 1, col: state.cols - 1 };
+    } else {
+        // For two players, use opposite corners
+        state.startPos[0] = corners.topLeft || { row: 0, col: 0 };
+        state.finishPos[0] = corners.bottomRight || { row: state.rows - 1, col: state.cols - 1 };
+        state.startPos[1] = corners.topRight || { row: 0, col: state.cols - 1 };
+        state.finishPos[1] = corners.bottomLeft || { row: state.rows - 1, col: 0 };
     }
-    
-    // Adjust finish position if it's not displayable
-    if (!state.board[state.finishPos.row][state.finishPos.col].shouldDisplay) {
-        // Find nearest displayable cell for finish
-        for (let c = 0; c < state.cols; c++) {
-            if (state.board[state.finishPos.row][c].shouldDisplay) {
-                state.finishPos.col = c;
-                break;
-            }
+
+    // Mark start and finish cells on the board
+    for (let p = 0; p < state.numPlayers; p++) {
+        const start = state.startPos[p];
+        const finish = state.finishPos[p];
+        
+        if (start && state.board[start.row] && state.board[start.row][start.col]) {
+            state.board[start.row][start.col].startForPlayer = p;
+            state.board[start.row][start.col].isEmpty = false;
+            state.board[start.row][start.col].tileType = 0;
+        }
+        
+        if (finish && state.board[finish.row] && state.board[finish.row][finish.col]) {
+            state.board[finish.row][finish.col].finishForPlayer = p;
+            state.board[finish.row][finish.col].isEmpty = false;
+            state.board[finish.row][finish.col].tileType = 0;
         }
     }
 
-    state.players = [
-        { row: state.startPos.row, col: state.startPos.col, hasFlag: false },
-        { row: state.startPos.row, col: state.startPos.col, hasFlag: false }
-    ];
+    // Initialize players at their start positions
+    state.players = [];
+    for (let p = 0; p < state.numPlayers; p++) {
+        state.players.push({
+            row: state.startPos[p].row,
+            col: state.startPos[p].col,
+            hasFlag: false
+        });
+    }
 
+    // Generate new tile for next placement
     state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
     state.nextTileRotation = 0;
+
     state.currentPlayer = 0;
     state.phase = 'roll';
     state.points = 0;
@@ -285,8 +347,8 @@ function renderBoard() {
             cellEl.innerHTML = createTileSVG(
                 cell.tileType,
                 cell.rotation,
-                cell.isStart,
-                cell.isFinish,
+                cell.startForPlayer,
+                cell.finishForPlayer,
                 cell.isEmpty,
                 r, c
             );
@@ -321,7 +383,7 @@ function renderBoard() {
 
 function renderNextTile() {
     const el = document.getElementById('next-tile');
-    el.innerHTML = createTileSVG(state.nextTileType, state.nextTileRotation, false, false, false, -1, -1);
+    el.innerHTML = createTileSVG(state.nextTileType, state.nextTileRotation, -1, -1, false, -1, -1);
 }
 
 function rotateNextTile(dir) {
@@ -345,6 +407,11 @@ function rollDice() {
             state.points = value;
             diceEl.textContent = value;
             diceEl.classList.remove('rolling');
+
+            // Генерируем новый тайл при броске кубика
+            state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+            state.nextTileRotation = 0;
+            renderNextTile();
 
             state.phase = 'action';
             updateUI();
@@ -442,7 +509,7 @@ function getNeighbors(row, col) {
 }
 
 function hasPathToEdge(cell, edge) {
-    if (cell.isStart || cell.isFinish) return true; // Start/finish connect to all edges
+    if (cell.startForPlayer !== -1 || cell.finishForPlayer !== -1) return true; // Start/finish connect to all edges
     if (cell.isEmpty || cell.tileType === null) return false;
 
     const edges = rotateEdges(TILE_TYPES[cell.tileType], cell.rotation);
@@ -517,7 +584,7 @@ function hasReplaceable() {
     for (let r = 0; r < state.rows; r++) {
         for (let c = 0; c < state.cols; c++) {
             const cell = state.board[r][c];
-            if (cell.shouldDisplay && !cell.isEmpty && !cell.isStart && !cell.isFinish) return true;
+            if (cell.shouldDisplay && !cell.isEmpty && cell.startForPlayer === -1 && cell.finishForPlayer === -1) return true;
         }
     }
     return false;
@@ -528,7 +595,7 @@ function getReplaceable() {
     for (let r = 0; r < state.rows; r++) {
         for (let c = 0; c < state.cols; c++) {
             const cell = state.board[r][c];
-            if (cell.shouldDisplay && !cell.isEmpty && !cell.isStart && !cell.isFinish) {
+            if (cell.shouldDisplay && !cell.isEmpty && cell.startForPlayer === -1 && cell.finishForPlayer === -1) {
                 tiles.push({ row: r, col: c });
             }
         }
@@ -541,7 +608,7 @@ function hasAdjacentReplaceable() {
     const neighbors = getNeighbors(player.row, player.col);
     return neighbors.some(n => {
         const cell = state.board[n.row][n.col];
-        return !cell.isEmpty && !cell.isStart && !cell.isFinish;
+        return !cell.isEmpty && cell.startForPlayer === -1 && cell.finishForPlayer === -1;
     });
 }
 
@@ -550,7 +617,7 @@ function getAdjacentReplaceable() {
     const neighbors = getNeighbors(player.row, player.col);
     return neighbors.filter(n => {
         const cell = state.board[n.row][n.col];
-        return !cell.isEmpty && !cell.isStart && !cell.isFinish;
+        return !cell.isEmpty && cell.startForPlayer === -1 && cell.finishForPlayer === -1;
     });
 }
 
@@ -627,7 +694,7 @@ function handleCellClick(row, col) {
             }
         }
         // Non-empty cell - try to move or replace
-        else if (!cell.isStart && !cell.isFinish && state.points >= COST.replace) {
+        else if (cell.startForPlayer === -1 && cell.finishForPlayer === -1 && state.points >= COST.replace) {
             // Check if it's a valid move target
             const validMoves = getValidMoves(player);
             if (validMoves.some(c => c.row === row && c.col === col)) {
@@ -664,10 +731,12 @@ function handleCellClick(row, col) {
             player.col = col;
             state.points -= COST.move;
 
-            // Check flag pickup
-            if (cell.isFinish && state.gameMode === 'flag' && !player.hasFlag) {
-                player.hasFlag = true;
-                updateStatus('🚩 Флаг подобран! Возвращайтесь на старт!');
+            // Check flag pickup (only if player is on their own finish)
+            if (state.gameMode === 'flag' && !player.hasFlag) {
+                if (cell.finishForPlayer === state.currentPlayer) {
+                    player.hasFlag = true;
+                    updateStatus('🚩 Флаг подобран! Возвращайтесь на старт!');
+                }
             }
 
             // Check win
@@ -706,11 +775,9 @@ function handleCellClick(row, col) {
             };
 
             state.points -= COST.placeAdjacent;
-            state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
-            state.nextTileRotation = 0;
+            // Новый тайл генерируется только при броске кубика, здесь не обновляем
 
             renderBoard();
-            renderNextTile();
             state.selectedAction = null;
             clearHighlights();
             updateUI();
@@ -734,11 +801,9 @@ function handleCellClick(row, col) {
             };
 
             state.points -= COST.placeAnywhere;
-            state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
-            state.nextTileRotation = 0;
+            // Новый тайл генерируется только при броске кубика, здесь не обновляем
 
             renderBoard();
-            renderNextTile();
             state.selectedAction = null;
             clearHighlights();
             updateUI();
@@ -794,8 +859,8 @@ function doReplaceTile() {
     state.board[row][col].rotation = state.nextTileRotation;
     state.points -= state.replaceActionCost || COST.replace;
 
-    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
-    state.nextTileRotation = 0;
+    // Новый тайл генерируется только при броске кубика
+    // Здесь не обновляем state.nextTileType
 
     document.getElementById('replace-modal').classList.remove('show');
     state.selectedCell = null;
@@ -815,10 +880,17 @@ function cancelReplace() {
 }
 
 function checkWin(player, cell) {
+    const playerIndex = state.currentPlayer;
+    
     if (state.gameMode === 'simple') {
-        return cell.isFinish;
+        // Проверяем, достиг ли игрок своего финиша
+        return player.row === state.finishPos[playerIndex].row && 
+               player.col === state.finishPos[playerIndex].col;
     } else {
-        return cell.isStart && player.hasFlag;
+        // В режиме с флагом: игрок должен вернуться на свой старт с флагом
+        return player.row === state.startPos[playerIndex].row && 
+               player.col === state.startPos[playerIndex].col && 
+               player.hasFlag;
     }
 }
 
