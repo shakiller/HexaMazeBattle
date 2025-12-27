@@ -27,8 +27,25 @@ const state = {
     nextTileType: 0,
     nextTileRotation: 0,
     startPos: [{ row: 0, col: 0 }, { row: 0, col: 8 }],
-    finishPos: [{ row: 8, col: 8 }, { row: 8, col: 0 }]
+    finishPos: [{ row: 8, col: 8 }, { row: 8, col: 0 }],
+    lastTilePlacement: null // Новое поле для хранения последнего размещения тайла
 };
+
+// Цвета игроков
+const PLAYER_COLORS = [
+    { // Игрок 1
+        primary: '#3b82f6',    // Синий
+        light: '#60a5fa',      // Светло-синий
+        dark: '#1d4ed8',       // Темно-синий
+        text: '#ffffff'        // Белый текст
+    },
+    { // Игрок 2
+        primary: '#ef4444',    // Красный
+        light: '#f87171',      // Светло-красный
+        dark: '#dc2626',       // Темно-красный
+        text: '#ffffff'        // Белый текст
+    }
+];
 
 // Tile types: each has edges array showing which sides have openings
 // Edges: 0=top, 1=top-right, 2=bottom-right, 3=bottom, 4=bottom-left, 5=top-left
@@ -146,7 +163,7 @@ function getHexPosition(row, col) {
 }
 
 // Get center point of an edge for drawing paths
-function getEdgePoint(edge, radius = 42) {
+function getEdgePoint(edge, radius = 38) {
     // For flat-top hex: edge 0 = top, going clockwise
     const angles = [
         -90,   // 0: top
@@ -174,13 +191,24 @@ function createTileSVG(tileType, rotation, startForPlayer, finishForPlayer, isEm
 
     let fillColor = isEmpty ? '#1a2332' : '#1e3a5f';
     let strokeColor = isEmpty ? '#334155' : '#0ea5e9';
+    let textColor = '#ffffff';
 
     // Определяем, является ли ячейка стартом или финишем какого-либо игрока
     const isStart = startForPlayer !== -1;
     const isFinish = finishForPlayer !== -1;
 
-    if (isStart) { fillColor = '#166534'; strokeColor = '#22c55e'; }
-    if (isFinish) { fillColor = '#7f1d1d'; strokeColor = '#ef4444'; }
+    if (isStart) {
+        const playerColor = PLAYER_COLORS[startForPlayer];
+        fillColor = playerColor.primary;
+        strokeColor = playerColor.dark;
+        textColor = playerColor.text;
+    }
+    if (isFinish) {
+        const playerColor = PLAYER_COLORS[finishForPlayer];
+        fillColor = playerColor.light;
+        strokeColor = playerColor.dark;
+        textColor = playerColor.text;
+    }
 
     let svg = `<svg viewBox="0 0 100 115.4" xmlns="http://www.w3.org/2000/svg">
     <polygon points="${hexPoints}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="2.5"/>`;
@@ -189,37 +217,72 @@ function createTileSVG(tileType, rotation, startForPlayer, finishForPlayer, isEm
     if (!isEmpty && tileType !== null) {
         const edges = rotateEdges(TILE_TYPES[tileType], rotation);
         const cx = 50, cy = 57.7;
-
-        // Draw path shadow
+        
+        // Более короткий радиус для путей, чтобы не выходить за пределы гексагона
+        const pathRadius = 38; // Уменьшен с 48
+        
+        // Углы для плоских шестиугольников
+        const angles = [-90, -30, 30, 90, 150, 210].map(deg => deg * Math.PI / 180);
+        
+        // Рисуем пути
         edges.forEach(edge => {
-            const p = getEdgePoint(edge, 48);
-            svg += `<line x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}"
-                    stroke="#1a1a2e" stroke-width="18" stroke-linecap="round"/>`;
+            const angle = angles[edge];
+            const startRadius = 12; // Начинаем не от центра, а немного отступив
+            const endRadius = pathRadius; // Заканчиваем не у самого края
+            
+            const x1 = cx + startRadius * Math.cos(angle);
+            const y1 = cy + startRadius * Math.sin(angle);
+            const x2 = cx + endRadius * Math.cos(angle);
+            const y2 = cy + endRadius * Math.sin(angle);
+            
+            // Основная линия пути - яркий жёлтый, без обводки и скруглений
+            svg += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+                    stroke="#fbbf24" stroke-width="12" stroke-linecap="butt"/>`;
         });
 
-        // Draw path main - яркий жёлтый
-        edges.forEach(edge => {
-            const p = getEdgePoint(edge, 48);
-            svg += `<line x1="${cx}" y1="${cy}" x2="${p.x}" y2="${p.y}"
-                    stroke="#fbbf24" stroke-width="14" stroke-linecap="round"/>`;
-        });
-
-        // Center hub
-        svg += `<circle cx="${cx}" cy="${cy}" r="10" fill="#fbbf24"/>`;
-        svg += `<circle cx="${cx}" cy="${cy}" r="5" fill="#fef3c7"/>`;
+        // Центральный узел - уменьшен
+        svg += `<circle cx="${cx}" cy="${cy}" r="8" fill="#fbbf24"/>`;
+        svg += `<circle cx="${cx}" cy="${cy}" r="4" fill="#fef3c7"/>`;
+        
+        // Дополнительная центральная точка для лучшей видимости соединений
+        svg += `<circle cx="${cx}" cy="${cy}" r="2" fill="#ffffff" opacity="0.5"/>`;
     }
 
     // Start/Finish labels
     if (isStart) {
         const playerNum = startForPlayer + 1;
-        svg += `<text x="50" y="62" text-anchor="middle" fill="white" font-size="10" font-weight="bold" font-family="sans-serif">СТАРТ${playerNum}</text>`;
+        const playerColor = PLAYER_COLORS[startForPlayer];
+        
+        // Добавляем фон для лучшей читаемости текста
+        svg += `<circle cx="50" cy="57.7" r="20" fill="${playerColor.primary}" opacity="0.7"/>`;
+        svg += `<text x="50" y="62" text-anchor="middle" fill="${playerColor.text}" font-size="10" font-weight="bold" font-family="sans-serif">СТАРТ${playerNum}</text>`;
+        
+        // Добавляем иконку игрока
+        svg += `<circle cx="50" cy="45" r="6" fill="${playerColor.text}"/>`;
     }
     if (isFinish) {
         const playerNum = finishForPlayer + 1;
-        svg += `<text x="50" y="55" text-anchor="middle" fill="white" font-size="10" font-weight="bold" font-family="sans-serif">ФИНИШ${playerNum}</text>`;
+        const playerColor = PLAYER_COLORS[finishForPlayer];
+        
+        // Добавляем фон для лучшей читаемости текста
+        svg += `<circle cx="50" cy="57.7" r="20" fill="${playerColor.light}" opacity="0.7"/>`;
+        svg += `<text x="50" y="55" text-anchor="middle" fill="${playerColor.text}" font-size="10" font-weight="bold" font-family="sans-serif">ФИНИШ${playerNum}</text>`;
+        
         if (state.gameMode === 'flag') {
             svg += `<text x="50" y="78" text-anchor="middle" font-size="16">🚩</text>`;
         }
+        
+        // Добавляем иконку финиша (флажок)
+        svg += `<path d="M47,45 L53,45 L53,50 L50,48 L47,50 Z" fill="${playerColor.text}"/>`;
+    }
+
+    // Если ячейка и старт и финиш (для одного игрока в режиме одного игрока)
+    if (isStart && isFinish && startForPlayer === finishForPlayer) {
+        const playerNum = startForPlayer + 1;
+        const playerColor = PLAYER_COLORS[startForPlayer];
+        
+        svg += `<circle cx="50" cy="57.7" r="20" fill="${playerColor.primary}" opacity="0.7"/>`;
+        svg += `<text x="50" y="55" text-anchor="middle" fill="${playerColor.text}" font-size="8" font-weight="bold" font-family="sans-serif">СТАРТ/ФИНИШ${playerNum}</text>`;
     }
 
     svg += '</svg>';
@@ -304,6 +367,7 @@ function initBoard() {
     state.points = 0;
     state.selectedAction = null;
     state.selectedCell = null;
+    state.lastTilePlacement = null; // Сбрасываем последнее размещение
 
     renderBoard();
     renderNextTile();
@@ -453,6 +517,10 @@ function updateUI() {
         state.phase !== 'action' || state.points < COST.replace || !hasReplaceable();
 
     document.getElementById('btn-end').disabled = state.phase !== 'action';
+    
+    // Кнопка отмены последнего действия - теперь доступна всегда, когда есть что отменять
+    document.getElementById('btn-undo').disabled = 
+        state.phase !== 'action' || state.lastTilePlacement === null;
 
     // Player sections
     document.getElementById('player1-section').classList.toggle('active', state.currentPlayer === 0);
@@ -470,6 +538,20 @@ function updateUI() {
             'replace': 'btn-replace'
         }[state.selectedAction];
         if (btnId) document.getElementById(btnId).classList.add('selected');
+    }
+    
+    // Обновляем заголовки игроков с цветами
+    const player1Title = document.querySelector('#player1-section .player-title');
+    const player2Title = document.querySelector('#player2-section .player-title');
+    
+    if (player1Title) {
+        player1Title.style.color = PLAYER_COLORS[0].primary;
+        player1Title.textContent = 'Игрок 1';
+    }
+    
+    if (player2Title) {
+        player2Title.style.color = PLAYER_COLORS[1].primary;
+        player2Title.textContent = 'Игрок 2';
     }
 }
 
@@ -756,7 +838,7 @@ function handleCellClick(row, col) {
             } else if (state.points > 0) {
                 updateStatus(`Осталось ${state.points} очков.`);
             } else {
-                endTurn();
+                updateStatus(`Очки закончились! Можно отменить последнее действие или завершить ход.`);
             }
             break;
 
@@ -775,6 +857,17 @@ function handleCellClick(row, col) {
                 clearHighlights();
                 return;
             }
+            // Сохраняем информацию о размещении для возможной отмены
+            state.lastTilePlacement = {
+                action: 'placeAdjacent',
+                row: row,
+                col: col,
+                previousCellState: { ...cell },
+                pointsUsed: COST.placeAdjacent,
+                nextTileTypeBefore: state.nextTileType,
+                nextTileRotationBefore: state.nextTileRotation
+            };
+            
             // Place tile
             state.board[row][col] = {
                 ...cell,
@@ -794,9 +887,11 @@ function handleCellClick(row, col) {
             state.selectedAction = null;
             clearHighlights();
             updateUI();
-            updateStatus(`Тайл размещён рядом с фишкой! Осталось ${state.points} очков.`);
+            updateStatus(`Тайл размещён рядом с фишкой! Осталось ${state.points} очков. Нажмите "Отмена" чтобы убрать тайл.`);
 
-            if (state.points <= 0) endTurn();
+            if (state.points <= 0) {
+                updateStatus(`Очки закончились! Можно отменить последнее действие или завершить ход.`);
+            }
             break;
 
         case 'placeAnywhere':
@@ -805,6 +900,17 @@ function handleCellClick(row, col) {
                 state.selectedAction = null;
                 return;
             }
+            // Сохраняем информацию о размещении для возможной отмены
+            state.lastTilePlacement = {
+                action: 'placeAnywhere',
+                row: row,
+                col: col,
+                previousCellState: { ...cell },
+                pointsUsed: COST.placeAnywhere,
+                nextTileTypeBefore: state.nextTileType,
+                nextTileRotationBefore: state.nextTileRotation
+            };
+            
             // Place tile
             state.board[row][col] = {
                 ...cell,
@@ -824,9 +930,11 @@ function handleCellClick(row, col) {
             state.selectedAction = null;
             clearHighlights();
             updateUI();
-            updateStatus(`Тайл размещён в любом месте! Осталось ${state.points} очков.`);
+            updateStatus(`Тайл размещён в любом месте! Осталось ${state.points} очков. Нажмите "Отмена" чтобы убрать тайл.`);
 
-            if (state.points <= 0) endTurn();
+            if (state.points <= 0) {
+                updateStatus(`Очки закончились! Можно отменить последнее действие или завершить ход.`);
+            }
             break;
 
         case 'replaceAdjacent':
@@ -850,10 +958,55 @@ function handleCellClick(row, col) {
     }
 }
 
+// Функция для отмены последнего размещения тайла
+function undoLastPlacement() {
+    if (state.lastTilePlacement === null) {
+        updateStatus('Нечего отменять!');
+        return;
+    }
+
+    if (state.phase !== 'action') {
+        updateStatus('Можно отменять только во время хода!');
+        return;
+    }
+
+    const placement = state.lastTilePlacement;
+    
+    // Возвращаем предыдущее состояние клетки
+    state.board[placement.row][placement.col] = placement.previousCellState;
+    
+    // Возвращаем очки
+    state.points += placement.pointsUsed;
+    
+    // Возвращаем предыдущий тайл (если он был изменен)
+    state.nextTileType = placement.nextTileTypeBefore;
+    state.nextTileRotation = placement.nextTileRotationBefore;
+    
+    // Сбрасываем запись о последнем размещении
+    state.lastTilePlacement = null;
+    
+    renderBoard();
+    renderNextTile();
+    updateUI();
+    updateStatus('Последнее размещение тайла отменено!');
+}
+
 function doRotateTile() {
     if (!state.selectedCell) return;
 
     const { row, col } = state.selectedCell;
+    
+    // Сохраняем информацию для возможной отмены
+    state.lastTilePlacement = {
+        action: 'rotate',
+        row: row,
+        col: col,
+        previousCellState: { ...state.board[row][col] },
+        pointsUsed: state.replaceActionCost || COST.replace,
+        nextTileTypeBefore: state.nextTileType,
+        nextTileRotationBefore: state.nextTileRotation
+    };
+    
     state.board[row][col].rotation = (state.board[row][col].rotation + 1) % 6;
     state.points -= state.replaceActionCost || COST.replace;
 
@@ -863,15 +1016,29 @@ function doRotateTile() {
     clearHighlights();
     renderBoard();
     updateUI();
-    updateStatus(`Тайл повёрнут! Осталось ${state.points} очков.`);
+    updateStatus(`Тайл повёрнут! Осталось ${state.points} очков. Нажмите "Отмена" чтобы отменить поворот.`);
 
-    if (state.points <= 0) endTurn();
+    if (state.points <= 0) {
+        updateStatus(`Очки закончились! Можно отменить последнее действие или завершить ход.`);
+    }
 }
 
 function doReplaceTile() {
     if (!state.selectedCell) return;
 
     const { row, col } = state.selectedCell;
+    
+    // Сохраняем информацию для возможной отмены
+    state.lastTilePlacement = {
+        action: 'replace',
+        row: row,
+        col: col,
+        previousCellState: { ...state.board[row][col] },
+        pointsUsed: state.replaceActionCost || COST.replace,
+        nextTileTypeBefore: state.nextTileType,
+        nextTileRotationBefore: state.nextTileRotation
+    };
+    
     state.board[row][col].tileType = state.nextTileType;
     state.board[row][col].rotation = state.nextTileRotation;
     state.points -= state.replaceActionCost || COST.replace;
@@ -887,9 +1054,11 @@ function doReplaceTile() {
     renderBoard();
     renderNextTile();
     updateUI();
-    updateStatus(`Тайл заменён! Осталось ${state.points} очков.`);
+    updateStatus(`Тайл заменён! Осталось ${state.points} очков. Нажмите "Отмена" чтобы вернуть старый тайл.`);
 
-    if (state.points <= 0) endTurn();
+    if (state.points <= 0) {
+        updateStatus(`Очки закончились! Можно отменить последнее действие или завершить ход.`);
+    }
 }
 
 function cancelReplace() {
@@ -913,11 +1082,19 @@ function checkWin(player, cell) {
 }
 
 function showWinModal() {
+    const playerColor = PLAYER_COLORS[state.currentPlayer];
+    
     document.getElementById('modal-title').textContent = '🎉 Победа!';
-    document.getElementById('modal-text').textContent =
-        state.numPlayers > 1
-            ? `Игрок ${state.currentPlayer + 1} победил!`
-            : 'Вы прошли лабиринт!';
+    document.getElementById('modal-title').style.color = playerColor.primary;
+    
+    if (state.numPlayers > 1) {
+        document.getElementById('modal-text').innerHTML = 
+            `<span style="color: ${playerColor.primary}; font-weight: bold;">Игрок ${state.currentPlayer + 1}</span> победил!`;
+    } else {
+        document.getElementById('modal-text').innerHTML = 
+            `<span style="color: ${playerColor.primary}; font-weight: bold;">Вы прошли лабиринт!</span>`;
+    }
+    
     document.getElementById('modal').classList.add('show');
 }
 
@@ -929,6 +1106,7 @@ function closeModal() {
 function endTurn() {
     state.selectedAction = null;
     state.selectedCell = null;
+    state.lastTilePlacement = null; // Сбрасываем последнее размещение при завершении хода
     clearHighlights();
 
     state.currentPlayer = (state.currentPlayer + 1) % state.numPlayers;
@@ -1026,6 +1204,9 @@ if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').match
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
     document.documentElement.classList.toggle('dark', e.matches);
 });
+
+// Добавляем обработчик для кнопки отмены
+document.getElementById('btn-undo').addEventListener('click', undoLastPlacement);
 
 // Init
 initBoard();
