@@ -21,6 +21,14 @@
         <button class="mode-btn" onclick="toggleSettings()">⚙️ Настройки</button>
     </div>
 
+    <!-- Добавляем панель выбора ИИ -->
+    <div class="ai-mode-panel" style="margin: 10px 0; text-align: center;">
+        <span style="margin-right: 10px; color: #fbbf24; font-weight: bold;">Игра против ИИ:</span>
+        <button class="mode-btn" id="btn-ai-easy" data-difficulty="easy">🤖 Легкий</button>
+        <button class="mode-btn" id="btn-ai-medium" data-difficulty="medium">🤖 Средний</button>
+        <button class="mode-btn" id="btn-ai-hard" data-difficulty="hard">🤖 Сложный</button>
+    </div>
+
     <div class="settings-panel" id="settings-panel">
         <div class="setting-row">
             <label>Ширина поля (столбцов):</label>
@@ -53,11 +61,10 @@
         </div>
     </div>
 
-    <!-- Остальная часть HTML без изменений -->
     <div class="top-panel">
         <div class="player-section player1 active" id="player1-section">
-            <div class="player-token-preview"></div>
-            <span class="player-label">Игрок 1</span>
+            <div class="player-token-preview p1"></div>
+            <span class="player-title">Игрок</span>
         </div>
 
         <div class="dice-section">
@@ -71,8 +78,8 @@
         </div>
 
         <div class="player-section player2" id="player2-section" style="display: none;">
-            <div class="player-token-preview"></div>
-            <span class="player-label">Игрок 2</span>
+            <div class="player-token-preview p2"></div>
+            <span class="player-title">Игрок 2</span>
         </div>
 
         <div class="tile-preview-section">
@@ -119,11 +126,11 @@
     </div>
 
     <div class="legend">
-        <div class="legend-item"><div class="legend-color" style="background: var(--start-color)"></div> Старт</div>
-        <div class="legend-item"><div class="legend-color" style="background: var(--finish-color)"></div> Финиш</div>
-        <div class="legend-item"><div class="legend-color" style="background: var(--path-color)"></div> Путь</div>
-        <div class="legend-item"><div class="legend-color" style="background: var(--player1-color)"></div> Игрок 1</div>
-        <div class="legend-item"><div class="legend-color" style="background: var(--player2-color)"></div> Игрок 2</div>
+        <div class="legend-item"><div class="legend-color" style="background: #3b82f6"></div> Старт игрока 1</div>
+        <div class="legend-item"><div class="legend-color" style="background: #60a5fa"></div> Финиш игрока 1</div>
+        <div class="legend-item"><div class="legend-color" style="background: #ef4444"></div> Старт игрока 2</div>
+        <div class="legend-item"><div class="legend-color" style="background: #f87171"></div> Финиш игрока 2</div>
+        <div class="legend-item"><div class="legend-color" style="background: #fbbf24"></div> Путь</div>
         <div class="legend-item"><div class="legend-color" style="background: #666; border: 1px solid #999"></div> Отсутствует</div>
     </div>
 
@@ -135,6 +142,14 @@
             <div class="rule-item"><span class="rule-cost">4</span> Тайл на любое место</div>
             <div class="rule-item"><span class="rule-cost">5</span> Изменить соседний тайл</div>
             <div class="rule-item"><span class="rule-cost">6</span> Изменить любой тайл</div>
+        </div>
+        <div style="margin-top: 15px; padding: 10px; background: rgba(251, 191, 36, 0.1); border-radius: 5px;">
+            <h4 style="margin: 0 0 5px 0; color: #fbbf24;">🤖 Режим ИИ</h4>
+            <p style="margin: 0; font-size: 12px; color: #94a3b8;">
+                <strong>Легкий</strong>: случайные действия<br>
+                <strong>Средний</strong>: пытается достичь финиша<br>
+                <strong>Сложный</strong>: стратегическая игра с блокировкой
+            </p>
         </div>
     </div>
 </div>
