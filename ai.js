@@ -1,3 +1,74 @@
+// Функция для проверки, соединяет ли тайл с соседними тайлами
+function tileConnectsToNeighbors(row, col, tileType, rotation) {
+    const neighbors = getNeighbors(row, col);
+    
+    if (neighbors.length === 0) return false;
+    
+    const edges = rotateEdges(TILE_TYPES[tileType], rotation);
+    
+    for (const neighbor of neighbors) {
+        const nCell = state.board[neighbor.row][neighbor.col];
+        if (!nCell.isEmpty && nCell.tileType !== null) {
+            const myEdge = neighbor.edge;
+            const theirEdge = (myEdge + 3) % 6;
+            
+            const nEdges = rotateEdges(TILE_TYPES[nCell.tileType], nCell.rotation);
+            
+            // Если тайл соединяется хотя бы с одним соседом
+            if (edges.includes(myEdge) && nEdges.includes(theirEdge)) {
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+// Функция для получения оптимального поворота тайла для максимального соединения
+function getBestRotationForTile(row, col, tileType) {
+    let bestRotation = 0;
+    let maxConnections = 0;
+    
+    // Проверяем все возможные повороты
+    for (let rotation = 0; rotation < 6; rotation++) {
+        let connections = 0;
+        const neighbors = getNeighbors(row, col);
+        const edges = rotateEdges(TILE_TYPES[tileType], rotation);
+        
+        for (const neighbor of neighbors) {
+            const nCell = state.board[neighbor.row][neighbor.col];
+            if (!nCell.isEmpty && nCell.tileType !== null) {
+                const myEdge = neighbor.edge;
+                const theirEdge = (myEdge + 3) % 6;
+                const nEdges = rotateEdges(TILE_TYPES[nCell.tileType], nCell.rotation);
+                
+                if (edges.includes(myEdge) && nEdges.includes(theirEdge)) {
+                    connections++;
+                }
+            }
+        }
+        
+        if (connections > maxConnections) {
+            maxConnections = connections;
+            bestRotation = rotation;
+        }
+    }
+    
+    return bestRotation;
+}
+
+// Функция для проверки, создает ли тайл путь к цели
+function createsPathToTarget(row, col, tileType, rotation, targetRow, targetCol) {
+    // Проверяем, соединяется ли тайл с существующими путями
+    if (tileConnectsToNeighbors(row, col, tileType, rotation)) {
+        return true;
+    }
+    
+    // Проверяем расстояние до цели
+    const distToTarget = Math.abs(row - targetRow) + Math.abs(col - targetCol);
+    return distToTarget < 4; // Если близко к цели, все равно размещаем
+}
+
 // Функция для хода ИИ
 function aiTurn() {
     if (state.phase === 'roll') {
@@ -30,7 +101,7 @@ function aiMakeDecision() {
     }
 }
 
-// Легкий ИИ: случайные действия
+// Легкий ИИ: случайные действия, но старается создавать соединения
 function aiEasyStrategy() {
     const aiPlayer = state.players[1];
     const availableActions = [];
@@ -61,19 +132,30 @@ function aiEasyStrategy() {
         return;
     }
     
-    // Выбираем случайное действие
-    const randomAction = availableActions[Math.floor(Math.random() * availableActions.length)];
+    // Сортируем действия по приоритету: движение -> размещение рядом -> остальное
+    const actionPriority = {
+        'move': 5,
+        'placeAdjacent': 4,
+        'placeAnywhere': 3,
+        'replaceAdjacent': 2,
+        'replace': 1
+    };
+    
+    availableActions.sort((a, b) => actionPriority[b.type] - actionPriority[a.type]);
+    
+    // Выбираем лучшее доступное действие
+    const bestAction = availableActions[0];
     
     // Выполняем действие
-    switch (randomAction.type) {
+    switch (bestAction.type) {
         case 'move':
-            aiPerformMove();
+            aiPerformSmartMove();
             break;
         case 'placeAdjacent':
-            aiPerformPlaceAdjacent();
+            aiPerformSmartPlaceAdjacent();
             break;
         case 'placeAnywhere':
-            aiPerformPlaceAnywhere();
+            aiPerformSmartPlaceAnywhere();
             break;
         case 'replaceAdjacent':
             aiPerformReplaceAdjacent();
@@ -84,7 +166,7 @@ function aiEasyStrategy() {
     }
 }
 
-// Средний ИИ: пытается двигаться к финишу
+// Средний ИИ: стратегическое движение и создание путей
 function aiMediumStrategy() {
     const aiPlayer = state.players[1];
     const finish = state.finishPos[1];
@@ -93,19 +175,19 @@ function aiMediumStrategy() {
     if (state.points >= COST.move && canMoveAnywhere(aiPlayer)) {
         const validMoves = getValidMoves(aiPlayer);
         
-        // Ищем ход, который приближает к финишу
-        let bestMove = null;
-        let bestDist = Infinity;
-        
-        for (const move of validMoves) {
-            const dist = Math.abs(move.row - finish.row) + Math.abs(move.col - finish.col);
-            if (dist < bestDist) {
-                bestDist = dist;
-                bestMove = move;
+        if (validMoves.length > 0) {
+            // Ищем ход, который приближает к финишу
+            let bestMove = validMoves[0];
+            let bestDist = Math.abs(bestMove.row - finish.row) + Math.abs(bestMove.col - finish.col);
+            
+            for (const move of validMoves) {
+                const dist = Math.abs(move.row - finish.row) + Math.abs(move.col - finish.col);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestMove = move;
+                }
             }
-        }
-        
-        if (bestMove) {
+            
             // Выполняем лучший ход
             aiPlayer.row = bestMove.row;
             aiPlayer.col = bestMove.col;
@@ -135,26 +217,28 @@ function aiMediumStrategy() {
         }
     }
     
-    // 2. Если нельзя двигаться, размещаем тайлы для создания пути
+    // 2. Размещаем соединяющие тайлы рядом
     if (state.points >= COST.placeAdjacent && hasAdjacentEmpty(aiPlayer)) {
-        aiPerformPlaceAdjacentStrategic();
+        aiPerformSmartPlaceAdjacent();
         return;
     }
     
+    // 3. Размещаем тайлы для создания пути к финишу
     if (state.points >= COST.placeAnywhere && hasAnyEmpty()) {
-        aiPerformPlaceAnywhereStrategic();
+        aiPerformStrategicPlaceAnywhere();
         return;
     }
     
-    // 3. Если ничего не можем, используем легкую стратегию
+    // 4. Если ничего не можем, используем легкую стратегию
     aiEasyStrategy();
 }
 
-// Сложный ИИ: стратегическая игра
+// Сложный ИИ: улучшенная стратегия с блокировкой противника
 function aiHardStrategy() {
     const aiPlayer = state.players[1];
     const finish = state.finishPos[1];
     const humanPlayer = state.players[0];
+    const humanFinish = state.finishPos[0];
     
     // 1. Проверяем выигрышный ход
     if (state.points >= COST.move && canMoveAnywhere(aiPlayer)) {
@@ -178,7 +262,62 @@ function aiHardStrategy() {
         }
     }
     
-    // 2. Используем среднюю стратегию с улучшениями
+    // 2. Блокируем игрока, если он близко к победе
+    const humanDist = Math.abs(humanPlayer.row - humanFinish.row) + Math.abs(humanPlayer.col - humanFinish.col);
+    if (humanDist <= 3 && state.points >= COST.placeAnywhere && hasAnyEmpty()) {
+        const allEmpty = getAllEmpty();
+        const blockingCells = allEmpty.filter(cell => {
+            // Клетки рядом с путем игрока к финишу
+            const cellDistToHumanPath = Math.abs(cell.row - humanPlayer.row) + Math.abs(cell.col - humanPlayer.col);
+            return cellDistToHumanPath <= 2;
+        });
+        
+        if (blockingCells.length > 0) {
+            // Размещаем тайл в блокирующей клетке
+            const bestBlock = blockingCells[Math.floor(Math.random() * blockingCells.length)];
+            
+            // Используем тупиковый тайл для блокировки
+            const blockingTile = 3; // Turn top to top-right (не прямой)
+            const bestRotation = getBestRotationForTile(bestBlock.row, bestBlock.col, blockingTile);
+            
+            state.lastTilePlacement = {
+                action: 'placeAnywhere',
+                row: bestBlock.row,
+                col: bestBlock.col,
+                previousCellState: { ...state.board[bestBlock.row][bestBlock.col] },
+                pointsUsed: COST.placeAnywhere,
+                nextTileTypeBefore: state.nextTileType,
+                nextTileRotationBefore: state.nextTileRotation
+            };
+            
+            state.board[bestBlock.row][bestBlock.col] = {
+                ...state.board[bestBlock.row][bestBlock.col],
+                tileType: blockingTile,
+                rotation: bestRotation,
+                isEmpty: false
+            };
+            
+            state.points -= COST.placeAnywhere;
+            state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+            state.nextTileRotation = 0;
+            
+            updateStatus(`ИИ блокирует путь в (${bestBlock.row},${bestBlock.col})`);
+            renderBoard();
+            renderNextTile();
+            
+            if (state.points > 0) {
+                setTimeout(aiTurn, 800);
+            } else {
+                updateStatus('ИИ завершает ход.');
+                setTimeout(() => {
+                    endTurn();
+                }, 1000);
+            }
+            return;
+        }
+    }
+    
+    // 3. Используем среднюю стратегию
     aiMediumStrategy();
 }
 
@@ -195,148 +334,64 @@ function checkAiWin() {
     return false;
 }
 
-// Стратегическое размещение тайла рядом
-function aiPerformPlaceAdjacentStrategic() {
+// Умное движение ИИ (выбирает ход, который создает больше возможностей)
+function aiPerformSmartMove() {
     const aiPlayer = state.players[1];
-    const adjacentEmpty = getAdjacentEmpty(aiPlayer);
-    
-    if (adjacentEmpty.length === 0) {
-        return false;
-    }
-    
-    // Выбираем клетку, которая ведет к финишу
     const finish = state.finishPos[1];
-    let bestCell = adjacentEmpty[0];
-    let bestDist = Math.abs(bestCell.row - finish.row) + Math.abs(bestCell.col - finish.col);
-    
-    for (const cell of adjacentEmpty) {
-        const dist = Math.abs(cell.row - finish.row) + Math.abs(cell.col - finish.col);
-        if (dist < bestDist) {
-            bestDist = dist;
-            bestCell = cell;
-        }
-    }
-    
-    // Размещаем тайл
-    state.lastTilePlacement = {
-        action: 'placeAdjacent',
-        row: bestCell.row,
-        col: bestCell.col,
-        previousCellState: { ...state.board[bestCell.row][bestCell.col] },
-        pointsUsed: COST.placeAdjacent,
-        nextTileTypeBefore: state.nextTileType,
-        nextTileRotationBefore: state.nextTileRotation
-    };
-    
-    state.board[bestCell.row][bestCell.col] = {
-        ...state.board[bestCell.row][bestCell.col],
-        tileType: state.nextTileType,
-        rotation: state.nextTileRotation,
-        isEmpty: false
-    };
-
-    state.points -= COST.placeAdjacent;
-    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
-    state.nextTileRotation = 0;
-    
-    updateStatus(`ИИ разместил стратегический тайл в (${bestCell.row},${bestCell.col})`);
-    renderBoard();
-    renderNextTile();
-    
-    if (state.points > 0) {
-        setTimeout(aiTurn, 800);
-    } else {
-        updateStatus('ИИ завершает ход.');
-        setTimeout(() => {
-            endTurn();
-        }, 1000);
-    }
-    return true;
-}
-
-// Стратегическое размещение тайла в любом месте
-function aiPerformPlaceAnywhereStrategic() {
-    const allEmpty = getAllEmpty();
-    
-    if (allEmpty.length === 0) {
-        return false;
-    }
-    
-    const finish = state.finishPos[1];
-    const aiPlayer = state.players[1];
-    
-    // Ищем клетки на пути к финишу
-    const pathCells = allEmpty.filter(cell => {
-        const distToFinish = Math.abs(cell.row - finish.row) + Math.abs(cell.col - finish.col);
-        const distToAi = Math.abs(cell.row - aiPlayer.row) + Math.abs(cell.col - aiPlayer.col);
-        return distToFinish < 6 && distToAi < 6;
-    });
-    
-    let targetCell;
-    if (pathCells.length > 0) {
-        // Выбираем случайную клетку на пути
-        targetCell = pathCells[Math.floor(Math.random() * pathCells.length)];
-    } else {
-        // Или случайную клетку
-        targetCell = allEmpty[Math.floor(Math.random() * allEmpty.length)];
-    }
-    
-    state.lastTilePlacement = {
-        action: 'placeAnywhere',
-        row: targetCell.row,
-        col: targetCell.col,
-        previousCellState: { ...state.board[targetCell.row][targetCell.col] },
-        pointsUsed: COST.placeAnywhere,
-        nextTileTypeBefore: state.nextTileType,
-        nextTileRotationBefore: state.nextTileRotation
-    };
-    
-    state.board[targetCell.row][targetCell.col] = {
-        ...state.board[targetCell.row][targetCell.col],
-        tileType: state.nextTileType,
-        rotation: state.nextTileRotation,
-        isEmpty: false
-    };
-
-    state.points -= COST.placeAnywhere;
-    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
-    state.nextTileRotation = 0;
-    
-    updateStatus(`ИИ разместил стратегический тайл в (${targetCell.row},${targetCell.col})`);
-    renderBoard();
-    renderNextTile();
-    
-    if (state.points > 0) {
-        setTimeout(aiTurn, 800);
-    } else {
-        updateStatus('ИИ завершает ход.');
-        setTimeout(() => {
-            endTurn();
-        }, 1000);
-    }
-    return true;
-}
-
-// Простое движение ИИ
-function aiPerformMove() {
-    const aiPlayer = state.players[1];
     const validMoves = getValidMoves(aiPlayer);
     
     if (validMoves.length === 0) {
         return false;
     }
     
-    // Выбираем случайный ход
-    const randomMove = validMoves[Math.floor(Math.random() * validMoves.length)];
-    aiPlayer.row = randomMove.row;
-    aiPlayer.col = randomMove.col;
+    // Оцениваем каждый возможный ход
+    let bestMove = validMoves[0];
+    let bestScore = -Infinity;
+    
+    for (const move of validMoves) {
+        let score = 0;
+        
+        // 1. Приближение к финишу
+        const currentDist = Math.abs(aiPlayer.row - finish.row) + Math.abs(aiPlayer.col - finish.col);
+        const newDist = Math.abs(move.row - finish.row) + Math.abs(move.col - finish.col);
+        score += (currentDist - newDist) * 10; // Чем ближе, тем лучше
+        
+        // 2. Количество возможных ходов с новой позиции
+        // Временно перемещаем фишку для оценки
+        const tempRow = aiPlayer.row;
+        const tempCol = aiPlayer.col;
+        aiPlayer.row = move.row;
+        aiPlayer.col = move.col;
+        
+        const futureMoves = getValidMoves(aiPlayer).length;
+        score += futureMoves * 5;
+        
+        // Возвращаем фишку
+        aiPlayer.row = tempRow;
+        aiPlayer.col = tempCol;
+        
+        // 3. Соединение с существующими путями
+        const cell = state.board[move.row][move.col];
+        if (!cell.isEmpty && cell.tileType !== null) {
+            score += 15;
+        }
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestMove = move;
+        }
+    }
+    
+    // Выполняем лучший ход
+    aiPlayer.row = bestMove.row;
+    aiPlayer.col = bestMove.col;
     state.points -= COST.move;
     
-    updateStatus(`ИИ переместился на (${randomMove.row},${randomMove.col})`);
+    updateStatus(`ИИ переместился на (${bestMove.row},${bestMove.col})`);
     renderBoard();
     
     // Проверяем победу
-    if (checkWin(aiPlayer, state.board[randomMove.row][randomMove.col])) {
+    if (checkWin(aiPlayer, state.board[bestMove.row][bestMove.col])) {
         setTimeout(() => {
             showWinModal();
         }, 500);
@@ -354,32 +409,66 @@ function aiPerformMove() {
     return true;
 }
 
-// Простое размещение тайла рядом
-function aiPerformPlaceAdjacent() {
+// Умное размещение тайла рядом (создает соединения)
+function aiPerformSmartPlaceAdjacent() {
     const aiPlayer = state.players[1];
+    const finish = state.finishPos[1];
     const adjacentEmpty = getAdjacentEmpty(aiPlayer);
     
     if (adjacentEmpty.length === 0) {
         return false;
     }
     
-    // Выбираем случайную соседнюю клетку
-    const randomCell = adjacentEmpty[Math.floor(Math.random() * adjacentEmpty.length)];
+    // Оцениваем каждую клетку
+    let bestCell = null;
+    let bestScore = -Infinity;
     
+    for (const cell of adjacentEmpty) {
+        let score = 0;
+        
+        // 1. Соединение с существующими тайлами
+        const bestRotation = getBestRotationForTile(cell.row, cell.col, state.nextTileType);
+        const connections = countTileConnections(cell.row, cell.col, state.nextTileType, bestRotation);
+        score += connections * 20;
+        
+        // 2. Приближение к финишу
+        const distToFinish = Math.abs(cell.row - finish.row) + Math.abs(cell.col - finish.col);
+        score -= distToFinish; // Чем ближе, тем лучше
+        
+        // 3. Создание пути для будущих движений
+        const distToAi = Math.abs(cell.row - aiPlayer.row) + Math.abs(cell.col - aiPlayer.col);
+        if (distToAi <= 2) {
+            score += 10;
+        }
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestCell = cell;
+        }
+    }
+    
+    if (!bestCell) {
+        bestCell = adjacentEmpty[Math.floor(Math.random() * adjacentEmpty.length)];
+    }
+    
+    // Находим оптимальный поворот
+    const bestRotation = getBestRotationForTile(bestCell.row, bestCell.col, state.nextTileType);
+    
+    // Размещаем тайл
     state.lastTilePlacement = {
         action: 'placeAdjacent',
-        row: randomCell.row,
-        col: randomCell.col,
-        previousCellState: { ...state.board[randomCell.row][randomCell.col] },
+        row: bestCell.row,
+        col: bestCell.col,
+        previousCellState: { ...state.board[bestCell.row][bestCell.col] },
         pointsUsed: COST.placeAdjacent,
         nextTileTypeBefore: state.nextTileType,
         nextTileRotationBefore: state.nextTileRotation
     };
     
-    state.board[randomCell.row][randomCell.col] = {
-        ...state.board[randomCell.row][randomCell.col],
+    state.board[bestCell.row][bestCell.col] = {
+        ...state.board[bestCell.row][bestCell.col],
         tileType: state.nextTileType,
-        rotation: state.nextTileRotation,
+        rotation: bestRotation,
         isEmpty: false
     };
 
@@ -387,7 +476,7 @@ function aiPerformPlaceAdjacent() {
     state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
     state.nextTileRotation = 0;
     
-    updateStatus(`ИИ разместил тайл рядом в (${randomCell.row},${randomCell.col})`);
+    updateStatus(`ИИ разместил соединяющий тайл в (${bestCell.row},${bestCell.col})`);
     renderBoard();
     renderNextTile();
     
@@ -402,30 +491,85 @@ function aiPerformPlaceAdjacent() {
     return true;
 }
 
-// Простое размещение тайла в любом месте
-function aiPerformPlaceAnywhere() {
+// Стратегическое размещение тайла в любом месте (создает путь к финишу)
+function aiPerformStrategicPlaceAnywhere() {
+    const aiPlayer = state.players[1];
+    const finish = state.finishPos[1];
     const allEmpty = getAllEmpty();
     
     if (allEmpty.length === 0) {
         return false;
     }
     
-    const randomCell = allEmpty[Math.floor(Math.random() * allEmpty.length)];
+    // Ищем клетки на пути к финишу
+    const pathCells = [];
+    const otherCells = [];
+    
+    for (const cell of allEmpty) {
+        const distToFinish = Math.abs(cell.row - finish.row) + Math.abs(cell.col - finish.col);
+        const distToAi = Math.abs(cell.row - aiPlayer.row) + Math.abs(cell.col - aiPlayer.col);
+        
+        // Клетки на пути между ИИ и финишем
+        if (distToFinish < 6 && distToAi < 6) {
+            pathCells.push(cell);
+        } else {
+            otherCells.push(cell);
+        }
+    }
+    
+    let targetCell;
+    if (pathCells.length > 0) {
+        // Выбираем лучшую клетку на пути
+        let bestCell = pathCells[0];
+        let bestScore = -Infinity;
+        
+        for (const cell of pathCells) {
+            let score = 0;
+            
+            // 1. Соединение с существующими тайлами
+            const bestRotation = getBestRotationForTile(cell.row, cell.col, state.nextTileType);
+            const connections = countTileConnections(cell.row, cell.col, state.nextTileType, bestRotation);
+            score += connections * 25;
+            
+            // 2. Расстояние до финиша (чем ближе, тем лучше)
+            const distToFinish = Math.abs(cell.row - finish.row) + Math.abs(cell.col - finish.col);
+            score -= distToFinish * 2;
+            
+            // 3. Расстояние до ИИ (не слишком близко, не слишком далеко)
+            const distToAi = Math.abs(cell.row - aiPlayer.row) + Math.abs(cell.col - aiPlayer.col);
+            if (distToAi >= 2 && distToAi <= 4) {
+                score += 15;
+            }
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestCell = cell;
+            }
+        }
+        
+        targetCell = bestCell;
+    } else {
+        // Выбираем случайную клетку
+        targetCell = allEmpty[Math.floor(Math.random() * allEmpty.length)];
+    }
+    
+    // Находим оптимальный поворот
+    const bestRotation = getBestRotationForTile(targetCell.row, targetCell.col, state.nextTileType);
     
     state.lastTilePlacement = {
         action: 'placeAnywhere',
-        row: randomCell.row,
-        col: randomCell.col,
-        previousCellState: { ...state.board[randomCell.row][randomCell.col] },
+        row: targetCell.row,
+        col: targetCell.col,
+        previousCellState: { ...state.board[targetCell.row][targetCell.col] },
         pointsUsed: COST.placeAnywhere,
         nextTileTypeBefore: state.nextTileType,
         nextTileRotationBefore: state.nextTileRotation
     };
     
-    state.board[randomCell.row][randomCell.col] = {
-        ...state.board[randomCell.row][randomCell.col],
+    state.board[targetCell.row][targetCell.col] = {
+        ...state.board[targetCell.row][targetCell.col],
         tileType: state.nextTileType,
-        rotation: state.nextTileRotation,
+        rotation: bestRotation,
         isEmpty: false
     };
 
@@ -433,7 +577,7 @@ function aiPerformPlaceAnywhere() {
     state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
     state.nextTileRotation = 0;
     
-    updateStatus(`ИИ разместил тайл в (${randomCell.row},${randomCell.col})`);
+    updateStatus(`ИИ создал путь в (${targetCell.row},${targetCell.col})`);
     renderBoard();
     renderNextTile();
     
@@ -448,7 +592,96 @@ function aiPerformPlaceAnywhere() {
     return true;
 }
 
-// Замена соседнего тайла
+// Умное размещение тайла в любом месте (упрощенная версия)
+function aiPerformSmartPlaceAnywhere() {
+    const allEmpty = getAllEmpty();
+    
+    if (allEmpty.length === 0) {
+        return false;
+    }
+    
+    const aiPlayer = state.players[1];
+    const finish = state.finishPos[1];
+    
+    // Ищем клетку, которая лучше всего соединяется
+    let bestCell = null;
+    let maxConnections = -1;
+    
+    for (const cell of allEmpty) {
+        const rotation = getBestRotationForTile(cell.row, cell.col, state.nextTileType);
+        const connections = countTileConnections(cell.row, cell.col, state.nextTileType, rotation);
+        
+        if (connections > maxConnections) {
+            maxConnections = connections;
+            bestCell = cell;
+        }
+    }
+    
+    if (!bestCell) {
+        bestCell = allEmpty[Math.floor(Math.random() * allEmpty.length)];
+    }
+    
+    const bestRotation = getBestRotationForTile(bestCell.row, bestCell.col, state.nextTileType);
+    
+    state.lastTilePlacement = {
+        action: 'placeAnywhere',
+        row: bestCell.row,
+        col: bestCell.col,
+        previousCellState: { ...state.board[bestCell.row][bestCell.col] },
+        pointsUsed: COST.placeAnywhere,
+        nextTileTypeBefore: state.nextTileType,
+        nextTileRotationBefore: state.nextTileRotation
+    };
+    
+    state.board[bestCell.row][bestCell.col] = {
+        ...state.board[bestCell.row][bestCell.col],
+        tileType: state.nextTileType,
+        rotation: bestRotation,
+        isEmpty: false
+    };
+
+    state.points -= COST.placeAnywhere;
+    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+    state.nextTileRotation = 0;
+    
+    updateStatus(`ИИ разместил тайл в (${bestCell.row},${bestCell.col})`);
+    renderBoard();
+    renderNextTile();
+    
+    if (state.points > 0) {
+        setTimeout(aiTurn, 800);
+    } else {
+        updateStatus('ИИ завершает ход.');
+        setTimeout(() => {
+            endTurn();
+        }, 1000);
+    }
+    return true;
+}
+
+// Вспомогательная функция для подсчета соединений тайла
+function countTileConnections(row, col, tileType, rotation) {
+    const neighbors = getNeighbors(row, col);
+    const edges = rotateEdges(TILE_TYPES[tileType], rotation);
+    
+    let connections = 0;
+    for (const neighbor of neighbors) {
+        const nCell = state.board[neighbor.row][neighbor.col];
+        if (!nCell.isEmpty && nCell.tileType !== null) {
+            const myEdge = neighbor.edge;
+            const theirEdge = (myEdge + 3) % 6;
+            const nEdges = rotateEdges(TILE_TYPES[nCell.tileType], nCell.rotation);
+            
+            if (edges.includes(myEdge) && nEdges.includes(theirEdge)) {
+                connections++;
+            }
+        }
+    }
+    
+    return connections;
+}
+
+// Замена соседнего тайла (улучшает соединения)
 function aiPerformReplaceAdjacent() {
     const adjacentReplaceable = getAdjacentReplaceable();
     
@@ -456,26 +689,45 @@ function aiPerformReplaceAdjacent() {
         return false;
     }
     
-    const randomCell = adjacentReplaceable[Math.floor(Math.random() * adjacentReplaceable.length)];
+    // Ищем тайл с плохими соединениями
+    let worstCell = null;
+    let minConnections = Infinity;
+    
+    for (const cell of adjacentReplaceable) {
+        const tile = state.board[cell.row][cell.col];
+        const connections = countTileConnections(cell.row, cell.col, tile.tileType, tile.rotation);
+        
+        if (connections < minConnections) {
+            minConnections = connections;
+            worstCell = cell;
+        }
+    }
+    
+    if (!worstCell) {
+        worstCell = adjacentReplaceable[Math.floor(Math.random() * adjacentReplaceable.length)];
+    }
+    
+    // Находим оптимальный поворот для текущего тайла
+    const bestRotation = getBestRotationForTile(worstCell.row, worstCell.col, state.nextTileType);
     
     state.lastTilePlacement = {
         action: 'replace',
-        row: randomCell.row,
-        col: randomCell.col,
-        previousCellState: { ...state.board[randomCell.row][randomCell.col] },
+        row: worstCell.row,
+        col: worstCell.col,
+        previousCellState: { ...state.board[worstCell.row][worstCell.col] },
         pointsUsed: COST.replaceAdjacent,
         nextTileTypeBefore: state.nextTileType,
         nextTileRotationBefore: state.nextTileRotation
     };
     
-    state.board[randomCell.row][randomCell.col].tileType = state.nextTileType;
-    state.board[randomCell.row][randomCell.col].rotation = state.nextTileRotation;
+    state.board[worstCell.row][worstCell.col].tileType = state.nextTileType;
+    state.board[worstCell.row][worstCell.col].rotation = bestRotation;
     state.points -= COST.replaceAdjacent;
     
     state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
     state.nextTileRotation = 0;
     
-    updateStatus(`ИИ заменил тайл в (${randomCell.row},${randomCell.col})`);
+    updateStatus(`ИИ улучшил соединения в (${worstCell.row},${worstCell.col})`);
     renderBoard();
     renderNextTile();
     
@@ -490,7 +742,7 @@ function aiPerformReplaceAdjacent() {
     return true;
 }
 
-// Замена любого тайла
+// Замена любого тайла (улучшает соединения)
 function aiPerformReplace() {
     const replaceable = getReplaceable();
     
@@ -498,26 +750,44 @@ function aiPerformReplace() {
         return false;
     }
     
-    const randomCell = replaceable[Math.floor(Math.random() * replaceable.length)];
+    // Ищем тайл с наименьшим количеством соединений
+    let worstCell = null;
+    let minConnections = Infinity;
+    
+    for (const cell of replaceable) {
+        const tile = state.board[cell.row][cell.col];
+        const connections = countTileConnections(cell.row, cell.col, tile.tileType, tile.rotation);
+        
+        if (connections < minConnections) {
+            minConnections = connections;
+            worstCell = cell;
+        }
+    }
+    
+    if (!worstCell) {
+        worstCell = replaceable[Math.floor(Math.random() * replaceable.length)];
+    }
+    
+    const bestRotation = getBestRotationForTile(worstCell.row, worstCell.col, state.nextTileType);
     
     state.lastTilePlacement = {
         action: 'replace',
-        row: randomCell.row,
-        col: randomCell.col,
-        previousCellState: { ...state.board[randomCell.row][randomCell.col] },
+        row: worstCell.row,
+        col: worstCell.col,
+        previousCellState: { ...state.board[worstCell.row][worstCell.col] },
         pointsUsed: COST.replace,
         nextTileTypeBefore: state.nextTileType,
         nextTileRotationBefore: state.nextTileRotation
     };
     
-    state.board[randomCell.row][randomCell.col].tileType = state.nextTileType;
-    state.board[randomCell.row][randomCell.col].rotation = state.nextTileRotation;
+    state.board[worstCell.row][worstCell.col].tileType = state.nextTileType;
+    state.board[worstCell.row][worstCell.col].rotation = bestRotation;
     state.points -= COST.replace;
     
     state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
     state.nextTileRotation = 0;
     
-    updateStatus(`ИИ заменил тайл в (${randomCell.row},${randomCell.col})`);
+    updateStatus(`ИИ улучшил тайл в (${worstCell.row},${worstCell.col})`);
     renderBoard();
     renderNextTile();
     
