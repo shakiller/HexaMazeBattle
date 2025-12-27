@@ -503,15 +503,17 @@ function emergencyEndAiTurn() {
     logAi('Аварийное завершение хода ИИ', 'error');
     state.aiThinking = false;
     aiActionInProgress = false;
+    
+    // Не сбрасываем очки, только передаем ход
     state.currentPlayer = 0; // Передаем ход игроку
     state.phase = 'roll';
-    state.points = 0;
+    // Очки не сбрасываем - они уже должны быть правильно подсчитаны
     
     updateStatus('❌ Ошибка ИИ. Ваш ход!');
     renderBoard();
     updateUI(); // Важно: обновляем UI!
     
-    logAi('Ход передан игроку', 'phase');
+    logAi('Ход передан игроку (аварийно)', 'phase');
 }
 
 // Основная функция принятия решений ИИ
@@ -632,10 +634,10 @@ function aiMakeDecision() {
             logAi('Выбор стратегии: Легкая', 'phase');
             actionTaken = aiEasyStrategy(possibleActions, aiPlayer, finish);
         } else if (state.aiDifficulty === 'medium') {
-            logAi('Выбор стратегия: Средняя', 'phase');
+            logAi('Выбор стратегии: Средняя', 'phase');
             actionTaken = aiMediumStrategy(possibleActions, aiPlayer, finish);
         } else {
-            logAi('Выбор стратегия: Сложная', 'phase');
+            logAi('Выбор стратегии: Сложная', 'phase');
             actionTaken = aiHardStrategy(possibleActions, aiPlayer, finish);
         }
         
@@ -678,7 +680,7 @@ function completeAiTurn(message) {
     }, 1000);
 }
 
-// Специальная функция завершения хода для ИИ
+// Специальная функция завершения хода для ИИ - ИСПРАВЛЕННАЯ ВЕРСИЯ
 function aiEndTurn() {
     logAi('Выполняем aiEndTurn()', 'phase');
     
@@ -699,7 +701,8 @@ function aiEndTurn() {
     // Меняем игрока
     state.currentPlayer = 0; // Передаем ход игроку
     state.phase = 'roll';
-    state.points = 0;
+    // НЕ сбрасываем очки - они уже должны быть правильно подсчитаны!
+    // state.points = 0; // УБИРАЕМ ЭТУ СТРОКУ!
     
     // Генерируем новый тайл
     state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
@@ -712,7 +715,7 @@ function aiEndTurn() {
     // Обновляем UI
     updateUI();
     
-    logAi('Ход ИИ завершен, передано игроку', 'phase');
+    logAi(`Ход ИИ завершен, передано игроку. Текущие очки: ${state.points}`, 'phase');
     updateStatus(`Игрок, бросьте кубик!`);
 }
 
@@ -1271,7 +1274,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // Меняем игрока
             state.currentPlayer = 0;
             state.phase = 'roll';
-            state.points = 0;
+            // НЕ сбрасываем очки - они уже должны быть правильно подсчитаны!
+            // state.points = 0; // УБИРАЕМ ЭТУ СТРОКУ!
             
             // Генерируем новый тайл
             state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
@@ -1284,7 +1288,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Обновляем UI
             updateUI();
             
-            logAi('Ход передан игроку (через endTurn)', 'phase');
+            logAi(`Ход передан игроку (через endTurn). Очки: ${state.points}`, 'phase');
             updateStatus(`Игрок, бросьте кубик!`);
         } else {
             // Если это ход игрока, вызываем оригинальную функцию
