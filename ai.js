@@ -8,7 +8,7 @@ function createAiLogPanel() {
         right: 10px;
         width: 400px;
         height: 300px;
-        background: rgba(0, 0, 0, 0.9);
+        background: rgba(0, 0, 0, 0.95);
         border: 2px solid #fbbf24;
         border-radius: 10px;
         color: white;
@@ -21,82 +21,115 @@ function createAiLogPanel() {
         resize: both;
         min-width: 300px;
         min-height: 200px;
+        box-shadow: 0 0 20px rgba(251, 191, 36, 0.3);
     `;
     
     const header = document.createElement('div');
     header.style.cssText = `
-        background: #1e3a8a;
+        background: linear-gradient(135deg, #1e3a8a, #1e40af);
         padding: 8px;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border-bottom: 1px solid #fbbf24;
+        border-bottom: 2px solid #fbbf24;
+        flex-shrink: 0;
     `;
     
     const title = document.createElement('span');
     title.textContent = '🤖 Лог ИИ';
     title.style.fontWeight = 'bold';
     title.style.color = '#fbbf24';
+    title.style.fontSize = '14px';
     
     const controls = document.createElement('div');
     controls.style.display = 'flex';
     controls.style.gap = '5px';
+    controls.style.alignItems = 'center';
     
     const copyBtn = document.createElement('button');
+    copyBtn.id = 'ai-log-copy-btn';
     copyBtn.textContent = '📋 Копировать';
     copyBtn.style.cssText = `
         background: #3b82f6;
         color: white;
         border: none;
-        padding: 4px 8px;
+        padding: 5px 10px;
         border-radius: 4px;
         cursor: pointer;
         font-size: 11px;
+        font-family: inherit;
+        transition: all 0.2s;
     `;
+    copyBtn.onmouseover = () => copyBtn.style.background = '#2563eb';
+    copyBtn.onmouseout = () => copyBtn.style.background = '#3b82f6';
     copyBtn.onclick = copyAiLog;
     
     const clearBtn = document.createElement('button');
+    clearBtn.id = 'ai-log-clear-btn';
     clearBtn.textContent = '🗑️ Очистить';
     clearBtn.style.cssText = `
         background: #ef4444;
         color: white;
         border: none;
-        padding: 4px 8px;
+        padding: 5px 10px;
         border-radius: 4px;
         cursor: pointer;
         font-size: 11px;
+        font-family: inherit;
+        transition: all 0.2s;
     `;
+    clearBtn.onmouseover = () => clearBtn.style.background = '#dc2626';
+    clearBtn.onmouseout = () => clearBtn.style.background = '#ef4444';
     clearBtn.onclick = clearAiLog;
     
-    const closeBtn = document.createElement('button');
-    closeBtn.textContent = '✕';
-    closeBtn.style.cssText = `
-        background: transparent;
-        color: white;
-        border: 1px solid white;
-        width: 20px;
-        height: 20px;
-        border-radius: 50%;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 10px;
-    `;
-    closeBtn.onclick = () => logPanel.style.display = 'none';
-    
     const toggleBtn = document.createElement('button');
+    toggleBtn.id = 'ai-log-toggle-btn';
     toggleBtn.textContent = '▼';
     toggleBtn.style.cssText = `
         background: #f59e0b;
         color: black;
         border: none;
-        padding: 4px 8px;
+        padding: 5px 10px;
         border-radius: 4px;
         cursor: pointer;
         font-size: 11px;
+        font-family: inherit;
+        font-weight: bold;
+        transition: all 0.2s;
     `;
+    toggleBtn.onmouseover = () => toggleBtn.style.background = '#d97706';
+    toggleBtn.onmouseout = () => toggleBtn.style.background = '#f59e0b';
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.id = 'ai-log-close-btn';
+    closeBtn.textContent = '✕';
+    closeBtn.style.cssText = `
+        background: transparent;
+        color: #fbbf24;
+        border: 1px solid #fbbf24;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: bold;
+        transition: all 0.2s;
+        margin-left: 5px;
+    `;
+    closeBtn.onmouseover = () => {
+        closeBtn.style.background = '#fbbf24';
+        closeBtn.style.color = 'black';
+    };
+    closeBtn.onmouseout = () => {
+        closeBtn.style.background = 'transparent';
+        closeBtn.style.color = '#fbbf24';
+    };
+    
     toggleBtn.onclick = () => {
+        const logContent = document.getElementById('ai-log-content');
         if (logContent.style.display === 'none') {
             logContent.style.display = 'block';
             toggleBtn.textContent = '▼';
@@ -104,6 +137,12 @@ function createAiLogPanel() {
             logContent.style.display = 'none';
             toggleBtn.textContent = '▲';
         }
+    };
+    
+    closeBtn.onclick = () => {
+        logPanel.style.display = 'none';
+        const openBtn = document.getElementById('ai-log-open-btn');
+        if (openBtn) openBtn.style.display = 'block';
     };
     
     controls.appendChild(copyBtn);
@@ -118,14 +157,15 @@ function createAiLogPanel() {
     logContent.id = 'ai-log-content';
     logContent.style.cssText = `
         flex: 1;
-        padding: 8px;
+        padding: 10px;
         overflow-y: auto;
         overflow-x: hidden;
         word-wrap: break-word;
-        font-family: 'Courier New', monospace;
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
         font-size: 11px;
         line-height: 1.4;
-        background: #111827;
+        background: #0f172a;
+        color: #e2e8f0;
     `;
     
     logPanel.appendChild(header);
@@ -135,89 +175,177 @@ function createAiLogPanel() {
     
     // Создаем кнопку для открытия панели, если она скрыта
     const openBtn = document.createElement('button');
+    openBtn.id = 'ai-log-open-btn';
     openBtn.textContent = '📝 Лог ИИ';
     openBtn.style.cssText = `
         position: fixed;
         bottom: 10px;
         right: 420px;
-        background: #1e3a8a;
+        background: linear-gradient(135deg, #1e3a8a, #1e40af);
         color: #fbbf24;
-        border: 1px solid #fbbf24;
-        padding: 5px 10px;
+        border: 2px solid #fbbf24;
+        padding: 8px 15px;
         border-radius: 5px;
         cursor: pointer;
         font-size: 12px;
+        font-weight: bold;
         z-index: 999;
+        display: none;
+        transition: all 0.2s;
+        box-shadow: 0 0 10px rgba(251, 191, 36, 0.3);
     `;
-    openBtn.onclick = () => logPanel.style.display = 'flex';
+    openBtn.onmouseover = () => openBtn.style.transform = 'translateY(-2px)';
+    openBtn.onmouseout = () => openBtn.style.transform = 'translateY(0)';
+    openBtn.onclick = () => {
+        logPanel.style.display = 'flex';
+        openBtn.style.display = 'none';
+    };
     
     document.body.appendChild(openBtn);
+    
+    // Показываем кнопку открытия при скрытии панели
+    closeBtn.onclick = () => {
+        logPanel.style.display = 'none';
+        openBtn.style.display = 'block';
+    };
+    
+    return logPanel;
 }
 
 // Функция для логирования
 function logAi(message, type = 'info') {
-    const logContent = document.getElementById('ai-log-content');
+    // Создаем панель если её нет
+    let logContent = document.getElementById('ai-log-content');
     if (!logContent) {
         createAiLogPanel();
+        logContent = document.getElementById('ai-log-content');
     }
     
     const timestamp = new Date().toLocaleTimeString();
-    const typePrefix = {
-        'info': 'ℹ️',
-        'error': '❌',
-        'warning': '⚠️',
-        'success': '✅',
-        'move': '➡️',
-        'place': '🧩',
-        'replace': '🔄',
-        'action': '🎯'
-    }[type] || '📝';
+    const typeConfig = {
+        'info': { emoji: 'ℹ️', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.15)' },
+        'error': { emoji: '❌', color: '#ef4444', bg: 'rgba(239, 68, 68, 0.15)' },
+        'warning': { emoji: '⚠️', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)' },
+        'success': { emoji: '✅', color: '#10b981', bg: 'rgba(16, 185, 129, 0.15)' },
+        'move': { emoji: '➡️', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.15)' },
+        'place': { emoji: '🧩', color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.15)' },
+        'replace': { emoji: '🔄', color: '#f97316', bg: 'rgba(249, 115, 22, 0.15)' },
+        'action': { emoji: '🎯', color: '#ec4899', bg: 'rgba(236, 72, 153, 0.15)' },
+        'phase': { emoji: '🔄', color: '#a855f7', bg: 'rgba(168, 85, 247, 0.15)' },
+        'debug': { emoji: '🔍', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.15)' }
+    };
+    
+    const config = typeConfig[type] || typeConfig.info;
     
     const logEntry = document.createElement('div');
     logEntry.style.cssText = `
         margin-bottom: 4px;
-        padding: 4px;
-        border-radius: 3px;
-        background: ${type === 'error' ? 'rgba(239, 68, 68, 0.2)' : 
-                     type === 'warning' ? 'rgba(245, 158, 11, 0.2)' : 
-                     type === 'success' ? 'rgba(34, 197, 94, 0.2)' : 
-                     'rgba(59, 130, 246, 0.2)'};
-        border-left: 3px solid ${type === 'error' ? '#ef4444' : 
-                             type === 'warning' ? '#f59e0b' : 
-                             type === 'success' ? '#22c55e' : 
-                             '#3b82f6'};
+        padding: 6px 8px;
+        border-radius: 4px;
+        background: ${config.bg};
+        border-left: 3px solid ${config.color};
+        transition: all 0.2s;
     `;
+    logEntry.onmouseover = () => logEntry.style.background = config.bg.replace('0.15', '0.25');
+    logEntry.onmouseout = () => logEntry.style.background = config.bg;
     
-    logEntry.innerHTML = `<span style="color: #94a3b8;">[${timestamp}]</span> ${typePrefix} ${message}`;
+    logEntry.innerHTML = `
+        <span style="color: #64748b; font-size: 10px;">[${timestamp}]</span>
+        <span style="color: ${config.color}; margin: 0 5px; font-weight: bold;">${config.emoji}</span>
+        <span style="color: #e2e8f0;">${message}</span>
+    `;
     
     logContent.appendChild(logEntry);
     logContent.scrollTop = logContent.scrollHeight;
     
     // Также логируем в консоль
-    console.log(`🤖 AI ${type}: ${message}`);
+    console.log(`%c🤖 AI ${type}: ${message}`, `color: ${config.color}`);
 }
 
-// Копирование лога
+// Копирование лога - ИСПРАВЛЕННАЯ ВЕРСИЯ
 function copyAiLog() {
     const logContent = document.getElementById('ai-log-content');
-    if (!logContent) return;
+    if (!logContent) {
+        logAi('Лог не найден', 'error');
+        return;
+    }
     
-    const text = logContent.innerText;
-    navigator.clipboard.writeText(text)
-        .then(() => {
-            const btn = event.target;
-            const originalText = btn.textContent;
-            btn.textContent = '✓ Скопировано!';
-            btn.style.background = '#10b981';
-            setTimeout(() => {
-                btn.textContent = originalText;
-                btn.style.background = '#3b82f6';
-            }, 1500);
-        })
-        .catch(err => {
-            console.error('Ошибка копирования:', err);
-            logAi('Не удалось скопировать лог', 'error');
+    try {
+        // Получаем весь текст из лога
+        let text = '';
+        const entries = logContent.querySelectorAll('div');
+        entries.forEach(entry => {
+            const timestamp = entry.querySelector('span[style*="color: #64748b"]')?.textContent || '';
+            const emoji = entry.querySelector('span[style*="font-weight: bold"]')?.textContent || '';
+            const message = entry.querySelector('span[style*="color: #e2e8f0"]')?.textContent || '';
+            text += `${timestamp} ${emoji} ${message}\n`;
         });
+        
+        // Используем современный API
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text.trim())
+                .then(() => {
+                    const btn = document.getElementById('ai-log-copy-btn');
+                    if (btn) {
+                        const originalText = btn.textContent;
+                        btn.textContent = '✓ Скопировано!';
+                        btn.style.background = '#10b981';
+                        setTimeout(() => {
+                            btn.textContent = originalText;
+                            btn.style.background = '#3b82f6';
+                        }, 1500);
+                    }
+                    logAi('Лог скопирован в буфер обмена', 'success');
+                })
+                .catch(err => {
+                    console.error('Clipboard error:', err);
+                    fallbackCopy(text.trim());
+                });
+        } else {
+            // Fallback для старых браузеров или HTTP
+            fallbackCopy(text.trim());
+        }
+    } catch (error) {
+        console.error('Copy error:', error);
+        logAi(`Ошибка копирования: ${error.message}`, 'error');
+    }
+}
+
+// Fallback метод копирования
+function fallbackCopy(text) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    
+    try {
+        const successful = document.execCommand('copy');
+        if (successful) {
+            const btn = document.getElementById('ai-log-copy-btn');
+            if (btn) {
+                const originalText = btn.textContent;
+                btn.textContent = '✓ Скопировано!';
+                btn.style.background = '#10b981';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.style.background = '#3b82f6';
+                }, 1500);
+            }
+            logAi('Лог скопирован (fallback метод)', 'success');
+        } else {
+            throw new Error('Copy command failed');
+        }
+    } catch (err) {
+        console.error('Fallback copy error:', err);
+        logAi('Не удалось скопировать. Разрешите доступ к буферу обмена или используйте Ctrl+C', 'error');
+        
+        // Показываем текст для ручного копирования
+        alert('Скопируйте текст вручную:\n\n' + text.substring(0, 1000) + (text.length > 1000 ? '...' : ''));
+    } finally {
+        document.body.removeChild(textarea);
+    }
 }
 
 // Очистка лога
@@ -233,8 +361,12 @@ function clearAiLog() {
 const originalUpdateStatus = updateStatus;
 updateStatus = function(text) {
     originalUpdateStatus(text);
+    
+    // Логируем статусы связанные с ИИ
     if (state.aiOpponent && state.currentPlayer === 1) {
-        logAi(`Статус: ${text}`, 'info');
+        if (text.includes('ИИ') || text.includes('🤖')) {
+            logAi(`Статус: ${text}`, 'phase');
+        }
     }
 };
 
@@ -295,142 +427,180 @@ function getBestRotationForTile(row, col, tileType) {
     return bestRotation;
 }
 
-// Функция для хода ИИ - ОБНОВЛЕННАЯ С ЛОГИРОВАНИЕМ
+// Функция для хода ИИ - ОБНОВЛЕННАЯ С ПРАВИЛЬНЫМ ЗАВЕРШЕНИЕМ
 function aiTurn() {
     logAi(`=== НАЧАЛО ХОДА ИИ ===`, 'action');
     logAi(`Фаза: ${state.phase}, Очки: ${state.points}, Тайл: ${state.nextTileType}`, 'info');
     
-    if (state.aiThinking) {
-        logAi('ИИ уже думает, пропускаем', 'warning');
+    // Проверяем, что сейчас действительно ход ИИ
+    if (!state.aiOpponent || state.currentPlayer !== 1) {
+        logAi('Сейчас не ход ИИ (проверка не прошла)', 'warning');
+        state.aiThinking = false;
         return;
     }
     
-    if (!state.aiOpponent || state.currentPlayer !== 1) {
-        logAi('Сейчас не ход ИИ', 'warning');
+    if (state.aiThinking) {
+        logAi('ИИ уже думает, пропускаем дублирующий вызов', 'warning');
         return;
     }
     
     state.aiThinking = true;
     
     if (state.phase === 'roll') {
-        logAi('Бросает кубик...', 'info');
+        logAi('Фаза: Бросок кубика', 'phase');
         updateStatus('🤖 ИИ бросает кубик...');
         setTimeout(() => {
             rollDice();
-            state.aiThinking = false;
+            state.aiThinking = false; // Сбрасываем флаг после броска
+            logAi('Бросок кубика завершен', 'phase');
         }, 1000);
         return;
     }
     
     if (state.phase !== 'action') {
-        logAi('Не фаза действий', 'error');
+        logAi(`Неправильная фаза для действий: ${state.phase}`, 'error');
         state.aiThinking = false;
         return;
     }
     
-    const delay = state.aiDifficulty === 'easy' ? 1000 : state.aiDifficulty === 'medium' ? 800 : 400;
+    const delay = state.aiDifficulty === 'easy' ? 1200 : state.aiDifficulty === 'medium' ? 800 : 500;
     
     logAi(`Сложность: ${state.aiDifficulty}, Задержка: ${delay}мс`, 'info');
-    updateStatus(`🤖 ИИ думает (${state.aiDifficulty})...`);
+    updateStatus(`🤖 ИИ думает...`);
     
     setTimeout(() => {
-        aiMakeDecision();
+        try {
+            aiMakeDecision();
+        } catch (error) {
+            logAi(`КРИТИЧЕСКАЯ ОШИБКА: ${error.message}`, 'error');
+            console.error('AI critical error:', error);
+            emergencyEndAiTurn();
+        }
     }, delay);
+}
+
+// Аварийное завершение хода ИИ
+function emergencyEndAiTurn() {
+    logAi('Аварийное завершение хода ИИ', 'error');
+    state.aiThinking = false;
+    state.currentPlayer = 0; // Передаем ход игроку
+    state.phase = 'roll';
+    state.points = 0;
+    
+    updateStatus('❌ Ошибка ИИ. Ваш ход!');
+    renderBoard();
+    updateUI();
+    
+    logAi('Ход передан игроку', 'phase');
 }
 
 // Основная функция принятия решений ИИ
 function aiMakeDecision() {
     logAi(`Принятие решения. Очки: ${state.points}`, 'action');
     
+    // Важная проверка: если points стал отрицательным, исправляем
+    if (state.points < 0) {
+        logAi(`ОШИБКА: отрицательные очки (${state.points}), исправляем на 0`, 'error');
+        state.points = 0;
+    }
+    
     if (state.points <= 0) {
         logAi('Очки закончились, завершаем ход', 'info');
-        updateStatus('🤖 ИИ: очки закончились');
-        state.aiThinking = false;
-        setTimeout(() => {
-            endTurn();
-        }, 500);
+        completeAiTurn('🤖 ИИ: очки закончились');
         return;
     }
     
     const aiPlayer = state.players[1];
     const finish = state.finishPos[1];
-    logAi(`Позиция ИИ: (${aiPlayer.row},${aiPlayer.col}), Финиш: (${finish.row},${finish.col})`, 'info');
+    logAi(`Позиция ИИ: (${aiPlayer.row},${aiPlayer.col}), Финиш: (${finish.row},${finish.col})`, 'debug');
     
-    // Проверяем все доступные действия
+    // Проверяем ВСЕ возможные действия с детальным логированием
     const actions = [];
     
     // 1. Движение
     if (state.points >= COST.move) {
         const canMove = canMoveAnywhere(aiPlayer);
-        const validMoves = canMove ? getValidMoves(aiPlayer).length : 0;
-        actions.push({
+        const validMoves = canMove ? getValidMoves(aiPlayer) : [];
+        const moveInfo = {
             type: 'move',
             cost: COST.move,
-            possible: canMove && validMoves > 0,
-            moves: validMoves
-        });
-        logAi(`Движение: ${canMove ? `возможно (${validMoves} вариантов)` : 'невозможно'}`, 'move');
+            possible: canMove && validMoves.length > 0,
+            moves: validMoves.length,
+            moveList: validMoves
+        };
+        actions.push(moveInfo);
+        logAi(`Движение: ${moveInfo.possible ? `✓ (${validMoves.length} вариантов)` : '✗'}`, 
+              moveInfo.possible ? 'success' : 'warning');
     }
     
     // 2. Размещение рядом
     if (state.points >= COST.placeAdjacent) {
         const adjacentEmpty = getAdjacentEmpty(aiPlayer);
-        actions.push({
+        const placeAdjInfo = {
             type: 'placeAdjacent',
             cost: COST.placeAdjacent,
             possible: adjacentEmpty.length > 0,
-            cells: adjacentEmpty.length
-        });
-        logAi(`Размещение рядом: ${adjacentEmpty.length > 0 ? `возможно (${adjacentEmpty.length} клеток)` : 'невозможно'}`, 'place');
+            cells: adjacentEmpty.length,
+            cellList: adjacentEmpty
+        };
+        actions.push(placeAdjInfo);
+        logAi(`Размещение рядом: ${placeAdjInfo.possible ? `✓ (${adjacentEmpty.length} клеток)` : '✗'}`, 
+              placeAdjInfo.possible ? 'success' : 'warning');
     }
     
     // 3. Размещение где угодно
     if (state.points >= COST.placeAnywhere) {
         const allEmpty = getAllEmpty();
-        actions.push({
+        const placeAnyInfo = {
             type: 'placeAnywhere',
             cost: COST.placeAnywhere,
             possible: allEmpty.length > 0,
-            cells: allEmpty.length
-        });
-        logAi(`Размещение где угодно: ${allEmpty.length > 0 ? `возможно (${allEmpty.length} клеток)` : 'невозможно'}`, 'place');
+            cells: allEmpty.length,
+            cellList: allEmpty
+        };
+        actions.push(placeAnyInfo);
+        logAi(`Размещение где угодно: ${placeAnyInfo.possible ? `✓ (${allEmpty.length} клеток)` : '✗'}`, 
+              placeAnyInfo.possible ? 'success' : 'warning');
     }
     
     // 4. Замена рядом
     if (state.points >= COST.replaceAdjacent) {
         const adjacentReplaceable = getAdjacentReplaceable();
-        actions.push({
+        const replaceAdjInfo = {
             type: 'replaceAdjacent',
             cost: COST.replaceAdjacent,
             possible: adjacentReplaceable.length > 0,
-            cells: adjacentReplaceable.length
-        });
-        logAi(`Замена рядом: ${adjacentReplaceable.length > 0 ? `возможно (${adjacentReplaceable.length} тайлов)` : 'невозможно'}`, 'replace');
+            cells: adjacentReplaceable.length,
+            cellList: adjacentReplaceable
+        };
+        actions.push(replaceAdjInfo);
+        logAi(`Замена рядом: ${replaceAdjInfo.possible ? `✓ (${adjacentReplaceable.length} тайлов)` : '✗'}`, 
+              replaceAdjInfo.possible ? 'success' : 'warning');
     }
     
     // 5. Замена любого
     if (state.points >= COST.replace) {
         const replaceable = getReplaceable();
-        actions.push({
+        const replaceInfo = {
             type: 'replace',
             cost: COST.replace,
             possible: replaceable.length > 0,
-            cells: replaceable.length
-        });
-        logAi(`Замена любого: ${replaceable.length > 0 ? `возможно (${replaceable.length} тайлов)` : 'невозможно'}`, 'replace');
+            cells: replaceable.length,
+            cellList: replaceable
+        };
+        actions.push(replaceInfo);
+        logAi(`Замена любого: ${replaceInfo.possible ? `✓ (${replaceable.length} тайлов)` : '✗'}`, 
+              replaceInfo.possible ? 'success' : 'warning');
     }
     
     // Фильтруем доступные действия
     const possibleActions = actions.filter(a => a.possible);
-    logAi(`Доступных действий: ${possibleActions.length}`, possibleActions.length > 0 ? 'success' : 'warning');
+    logAi(`Доступных действий: ${possibleActions.length} из ${actions.length}`, 
+          possibleActions.length > 0 ? 'success' : 'error');
     
     if (possibleActions.length === 0) {
-        logAi('Нет доступных действий, завершаем ход', 'error');
-        updateStatus('🤖 ИИ: нет доступных действий');
-        state.aiThinking = false;
-        setTimeout(() => {
-            endTurn();
-        }, 500);
+        logAi('❌ Нет доступных действий, завершаем ход', 'error');
+        completeAiTurn('🤖 ИИ: нет доступных действий');
         return;
     }
     
@@ -439,46 +609,65 @@ function aiMakeDecision() {
     
     try {
         if (state.aiDifficulty === 'easy') {
+            logAi('Выбор стратегии: Легкая', 'phase');
             actionTaken = aiEasyStrategy(possibleActions, aiPlayer, finish);
         } else if (state.aiDifficulty === 'medium') {
+            logAi('Выбор стратегии: Средняя', 'phase');
             actionTaken = aiMediumStrategy(possibleActions, aiPlayer, finish);
         } else {
+            logAi('Выбор стратегии: Сложная', 'phase');
             actionTaken = aiHardStrategy(possibleActions, aiPlayer, finish);
         }
         
         if (!actionTaken) {
-            logAi('Не удалось выполнить действие, завершаем ход', 'error');
-            updateStatus('🤖 ИИ: не смог выполнить действие');
-            state.aiThinking = false;
-            setTimeout(() => {
-                endTurn();
-            }, 500);
+            logAi('⚠️ Не удалось выполнить действие, завершаем ход', 'warning');
+            completeAiTurn('🤖 ИИ: не смог выполнить действие');
         }
     } catch (error) {
-        logAi(`ОШИБКА: ${error.message}`, 'error');
-        console.error('AI error:', error);
-        state.aiThinking = false;
-        setTimeout(() => {
-            endTurn();
-        }, 500);
+        logAi(`❌ ОШИБКА В СТРАТЕГИИ: ${error.message}`, 'error');
+        console.error('AI strategy error:', error);
+        completeAiTurn('🤖 Ошибка ИИ. Завершаю ход.');
     }
+}
+
+// Функция для корректного завершения хода ИИ
+function completeAiTurn(message) {
+    logAi('Завершение хода ИИ...', 'phase');
+    
+    // Всегда сбрасываем флаг думания
+    state.aiThinking = false;
+    
+    // Обновляем статус
+    if (message) {
+        updateStatus(message);
+    }
+    
+    // Даем небольшую задержку перед передачей хода
+    setTimeout(() => {
+        // Проверяем, что мы все еще в режиме ИИ и это все еще ход ИИ
+        if (state.aiOpponent && state.currentPlayer === 1) {
+            logAi('Передача хода игроку', 'phase');
+            endTurn(); // Используем стандартную функцию завершения хода
+        } else {
+            logAi('Ход уже передан', 'debug');
+        }
+    }, 800);
 }
 
 // Легкая стратегия ИИ
 function aiEasyStrategy(possibleActions, aiPlayer, finish) {
-    logAi('Стратегия: Легкая', 'info');
+    // Сортируем по стоимости (от дешевых к дорогим)
+    possibleActions.sort((a, b) => a.cost - b.cost);
     
-    // Выбираем случайное доступное действие
-    const randomAction = possibleActions[Math.floor(Math.random() * possibleActions.length)];
-    logAi(`Выбрано действие: ${randomAction.type} (${randomAction.cost} очков)`, 'action');
+    // Выбираем самое дешевое доступное действие
+    const chosenAction = possibleActions[0];
+    logAi(`Выбрано дешевое действие: ${chosenAction.type} (${chosenAction.cost} очков)`, 'action');
     
-    return executeAiAction(randomAction.type, aiPlayer, finish);
+    return executeAiAction(chosenAction.type, aiPlayer, finish, chosenAction);
 }
 
 // Средняя стратегия ИИ
 function aiMediumStrategy(possibleActions, aiPlayer, finish) {
-    logAi('Стратегия: Средняя', 'info');
-    
     // Приоритет: движение → размещение рядом → остальное
     const actionPriority = {
         'move': 5,
@@ -488,53 +677,81 @@ function aiMediumStrategy(possibleActions, aiPlayer, finish) {
         'replace': 1
     };
     
-    possibleActions.sort((a, b) => actionPriority[b.type] - actionPriority[a.type]);
-    const bestAction = possibleActions[0];
-    logAi(`Выбрано действие: ${bestAction.type} (приоритет ${actionPriority[bestAction.type]})`, 'action');
+    possibleActions.sort((a, b) => {
+        const priorityDiff = actionPriority[b.type] - actionPriority[a.type];
+        if (priorityDiff !== 0) return priorityDiff;
+        return a.cost - b.cost; // Если приоритет одинаковый, выбираем дешевле
+    });
     
-    return executeAiAction(bestAction.type, aiPlayer, finish);
+    const bestAction = possibleActions[0];
+    logAi(`Выбрано приоритетное действие: ${bestAction.type} (приоритет ${actionPriority[bestAction.type]}, ${bestAction.cost} очков)`, 'action');
+    
+    return executeAiAction(bestAction.type, aiPlayer, finish, bestAction);
 }
 
 // Сложная стратегия ИИ
 function aiHardStrategy(possibleActions, aiPlayer, finish) {
-    logAi('Стратегия: Сложная', 'info');
+    // Для сложного ИИ пытаемся выбрать действие, которое приближает к финишу
+    let bestAction = possibleActions[0];
+    let bestScore = -Infinity;
     
-    // Пока используем среднюю стратегию, но с улучшенной логикой
-    return aiMediumStrategy(possibleActions, aiPlayer, finish);
+    for (const action of possibleActions) {
+        let score = 0;
+        
+        // Базовый приоритет как в средней стратегии
+        const priority = {
+            'move': 5,
+            'placeAdjacent': 4,
+            'placeAnywhere': 3,
+            'replaceAdjacent': 2,
+            'replace': 1
+        }[action.type] || 0;
+        
+        score += priority * 10;
+        
+        // Предпочтение дешевым действиям
+        score += (10 - action.cost) * 2;
+        
+        if (score > bestScore) {
+            bestScore = score;
+            bestAction = action;
+        }
+    }
+    
+    logAi(`Выбрано стратегическое действие: ${bestAction.type} (оценка: ${bestScore.toFixed(1)})`, 'action');
+    
+    return executeAiAction(bestAction.type, aiPlayer, finish, bestAction);
 }
 
 // Выполнение действия ИИ
-function executeAiAction(actionType, aiPlayer, finish) {
-    logAi(`Выполнение действия: ${actionType}`, 'action');
+function executeAiAction(actionType, aiPlayer, finish, actionInfo) {
+    logAi(`▶️ Выполнение: ${actionType}`, 'action');
     
     switch (actionType) {
         case 'move':
-            return aiPerformMove(aiPlayer, finish);
+            return aiPerformMove(aiPlayer, finish, actionInfo);
         case 'placeAdjacent':
-            return aiPerformPlaceAdjacent(aiPlayer, finish);
+            return aiPerformPlaceAdjacent(aiPlayer, finish, actionInfo);
         case 'placeAnywhere':
-            return aiPerformPlaceAnywhere(aiPlayer, finish);
+            return aiPerformPlaceAnywhere(aiPlayer, finish, actionInfo);
         case 'replaceAdjacent':
-            return aiPerformReplaceAdjacent(aiPlayer);
+            return aiPerformReplaceAdjacent(aiPlayer, actionInfo);
         case 'replace':
-            return aiPerformReplace(aiPlayer);
+            return aiPerformReplace(aiPlayer, actionInfo);
         default:
-            logAi(`Неизвестное действие: ${actionType}`, 'error');
+            logAi(`❌ Неизвестное действие: ${actionType}`, 'error');
             return false;
     }
 }
 
 // Движение ИИ
-function aiPerformMove(aiPlayer, finish) {
-    logAi('Пытаемся двигаться', 'move');
+function aiPerformMove(aiPlayer, finish, actionInfo) {
+    const validMoves = actionInfo.moveList || getValidMoves(aiPlayer);
     
-    const validMoves = getValidMoves(aiPlayer);
-    if (validMoves.length === 0) {
-        logAi('Нет доступных ходов', 'error');
+    if (!validMoves || validMoves.length === 0) {
+        logAi('❌ Нет доступных ходов (неожиданная ошибка)', 'error');
         return false;
     }
-    
-    logAi(`Доступные ходы: ${validMoves.map(m => `(${m.row},${m.col})`).join(', ')}`, 'info');
     
     // Выбираем ход, который ближе к финишу
     let bestMove = validMoves[0];
@@ -550,62 +767,55 @@ function aiPerformMove(aiPlayer, finish) {
     
     logAi(`Выбран ход: (${bestMove.row},${bestMove.col}), расстояние до финиша: ${bestDist}`, 'move');
     
-    const oldPos = `(${aiPlayer.row},${aiPlayer.col})`;
+    // Выполняем ход
+    const oldRow = aiPlayer.row;
+    const oldCol = aiPlayer.col;
+    const oldPoints = state.points;
+    
     aiPlayer.row = bestMove.row;
     aiPlayer.col = bestMove.col;
-    const newPos = `(${aiPlayer.row},${aiPlayer.col})`;
-    
-    const oldPoints = state.points;
     state.points -= COST.move;
     
-    logAi(`Перемещение: ${oldPos} → ${newPos}, очки: ${oldPoints} → ${state.points}`, 'success');
-    updateStatus(`🤖 ИИ переместился ${oldPos} → ${newPos}`);
+    logAi(`Перемещение: (${oldRow},${oldCol}) → (${aiPlayer.row},${aiPlayer.col}), очки: ${oldPoints} → ${state.points}`, 'success');
+    updateStatus(`🤖 ИИ переместился на (${aiPlayer.row},${aiPlayer.col})`);
+    
     renderBoard();
     
     // Проверяем победу
-    if (checkWin(aiPlayer, state.board[bestMove.row][bestMove.col])) {
-        logAi('🏆 ИИ ДОСТИГ ФИНИША!', 'success');
+    if (checkWin(aiPlayer, state.board[aiPlayer.row][aiPlayer.col])) {
+        logAi('🏆 ИИ ДОСТИГ ФИНИША! ПОБЕДА!', 'success');
+        state.aiThinking = false;
         setTimeout(() => {
             showWinModal();
-        }, 500);
-        state.aiThinking = false;
+        }, 1000);
         return true;
     }
     
     // Продолжаем ход, если есть очки
     if (state.points > 0) {
         logAi(`Осталось очков: ${state.points}, продолжаем ход`, 'info');
-        setTimeout(aiTurn, 600);
+        setTimeout(aiTurn, 800);
     } else {
-        logAi('Очки закончились, завершаем ход', 'info');
-        updateStatus('🤖 ИИ завершает ход.');
-        state.aiThinking = false;
-        setTimeout(() => {
-            endTurn();
-        }, 800);
+        completeAiTurn('🤖 ИИ завершает ход.');
     }
     
     return true;
 }
 
 // Размещение тайла рядом
-function aiPerformPlaceAdjacent(aiPlayer, finish) {
-    logAi('Пытаемся разместить тайл рядом', 'place');
+function aiPerformPlaceAdjacent(aiPlayer, finish, actionInfo) {
+    const adjacentEmpty = actionInfo.cellList || getAdjacentEmpty(aiPlayer);
     
-    const adjacentEmpty = getAdjacentEmpty(aiPlayer);
-    if (adjacentEmpty.length === 0) {
-        logAi('Нет пустых клеток рядом', 'error');
+    if (!adjacentEmpty || adjacentEmpty.length === 0) {
+        logAi('❌ Нет пустых клеток рядом (неожиданная ошибка)', 'error');
         return false;
     }
     
-    logAi(`Пустые клетки рядом: ${adjacentEmpty.map(c => `(${c.row},${c.col})`).join(', ')}`, 'info');
-    
-    // Выбираем первую попавшуюся клетку
+    // Выбираем первую клетку
     const targetCell = adjacentEmpty[0];
     const bestRotation = getBestRotationForTile(targetCell.row, targetCell.col, state.nextTileType);
-    const connections = countTileConnections(targetCell.row, targetCell.col, state.nextTileType, bestRotation);
     
-    logAi(`Выбрана клетка: (${targetCell.row},${targetCell.col}), поворот: ${bestRotation}, соединений: ${connections}`, 'place');
+    logAi(`Размещение тайла в (${targetCell.row},${targetCell.col}), поворот: ${bestRotation}`, 'place');
     
     // Сохраняем состояние для отката
     state.lastTilePlacement = {
@@ -619,6 +829,9 @@ function aiPerformPlaceAdjacent(aiPlayer, finish) {
     };
     
     // Размещаем тайл
+    const oldPoints = state.points;
+    const oldTileType = state.nextTileType;
+    
     state.board[targetCell.row][targetCell.col] = {
         ...state.board[targetCell.row][targetCell.col],
         tileType: state.nextTileType,
@@ -626,43 +839,36 @@ function aiPerformPlaceAdjacent(aiPlayer, finish) {
         isEmpty: false
     };
     
-    const oldPoints = state.points;
     state.points -= COST.placeAdjacent;
-    const oldTileType = state.nextTileType;
     state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
     state.nextTileRotation = 0;
     
-    logAi(`Тайл размещен: тип ${oldTileType} → тип ${state.nextTileType}, очки: ${oldPoints} → ${state.points}`, 'success');
+    logAi(`Тайл размещен: тип ${oldTileType}, очки: ${oldPoints} → ${state.points}`, 'success');
     updateStatus(`🤖 ИИ разместил тайл в (${targetCell.row},${targetCell.col})`);
+    
     renderBoard();
     renderNextTile();
     
+    // Продолжаем ход, если есть очки
     if (state.points > 0) {
-        logAi(`Осталось очков: ${state.points}, продолжаем ход`, 'info');
-        setTimeout(aiTurn, 600);
+        setTimeout(aiTurn, 800);
     } else {
-        logAi('Очки закончились, завершаем ход', 'info');
-        updateStatus('🤖 ИИ завершает ход.');
-        state.aiThinking = false;
-        setTimeout(() => {
-            endTurn();
-        }, 800);
+        completeAiTurn('🤖 ИИ завершает ход.');
     }
     
     return true;
 }
 
 // Размещение тайла где угодно
-function aiPerformPlaceAnywhere(aiPlayer, finish) {
-    logAi('Пытаемся разместить тайл где угодно', 'place');
+function aiPerformPlaceAnywhere(aiPlayer, finish, actionInfo) {
+    const allEmpty = actionInfo.cellList || getAllEmpty();
     
-    const allEmpty = getAllEmpty();
-    if (allEmpty.length === 0) {
-        logAi('Нет пустых клеток на поле', 'error');
+    if (!allEmpty || allEmpty.length === 0) {
+        logAi('❌ Нет пустых клеток (неожиданная ошибка)', 'error');
         return false;
     }
     
-    // Ищем клетку, которая ближе к финишу
+    // Выбираем клетку ближе к финишу
     let bestCell = allEmpty[0];
     let bestDist = Math.abs(bestCell.row - finish.row) + Math.abs(bestCell.col - finish.col);
     
@@ -676,7 +882,7 @@ function aiPerformPlaceAnywhere(aiPlayer, finish) {
     
     const bestRotation = getBestRotationForTile(bestCell.row, bestCell.col, state.nextTileType);
     
-    logAi(`Выбрана клетка: (${bestCell.row},${bestCell.col}), расстояние до финиша: ${bestDist}, поворот: ${bestRotation}`, 'place');
+    logAi(`Размещение тайла в (${bestCell.row},${bestCell.col}), расстояние до финиша: ${bestDist}`, 'place');
     
     // Сохраняем состояние
     state.lastTilePlacement = {
@@ -690,6 +896,9 @@ function aiPerformPlaceAnywhere(aiPlayer, finish) {
     };
     
     // Размещаем тайл
+    const oldPoints = state.points;
+    const oldTileType = state.nextTileType;
+    
     state.board[bestCell.row][bestCell.col] = {
         ...state.board[bestCell.row][bestCell.col],
         tileType: state.nextTileType,
@@ -697,45 +906,40 @@ function aiPerformPlaceAnywhere(aiPlayer, finish) {
         isEmpty: false
     };
     
-    const oldPoints = state.points;
     state.points -= COST.placeAnywhere;
-    const oldTileType = state.nextTileType;
     state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
     state.nextTileRotation = 0;
     
-    logAi(`Тайл размещен: тип ${oldTileType} → тип ${state.nextTileType}, очки: ${oldPoints} → ${state.points}`, 'success');
+    logAi(`Тайл размещен: тип ${oldTileType}, очки: ${oldPoints} → ${state.points}`, 'success');
     updateStatus(`🤖 ИИ разместил тайл в (${bestCell.row},${bestCell.col})`);
+    
     renderBoard();
     renderNextTile();
     
+    // Продолжаем ход, если есть очки
     if (state.points > 0) {
-        setTimeout(aiTurn, 600);
+        setTimeout(aiTurn, 800);
     } else {
-        updateStatus('🤖 ИИ завершает ход.');
-        state.aiThinking = false;
-        setTimeout(() => {
-            endTurn();
-        }, 800);
+        completeAiTurn('🤖 ИИ завершает ход.');
     }
     
     return true;
 }
 
 // Замена соседнего тайла
-function aiPerformReplaceAdjacent(aiPlayer) {
-    logAi('Пытаемся заменить соседний тайл', 'replace');
+function aiPerformReplaceAdjacent(aiPlayer, actionInfo) {
+    const adjacentReplaceable = actionInfo.cellList || getAdjacentReplaceable();
     
-    const adjacentReplaceable = getAdjacentReplaceable();
-    if (adjacentReplaceable.length === 0) {
-        logAi('Нет заменяемых тайлов рядом', 'error');
+    if (!adjacentReplaceable || adjacentReplaceable.length === 0) {
+        logAi('❌ Нет заменяемых тайлов рядом (неожиданная ошибка)', 'error');
         return false;
     }
     
-    // Выбираем первый попавшийся тайл
+    // Выбираем первый тайл
     const targetCell = adjacentReplaceable[0];
     const bestRotation = getBestRotationForTile(targetCell.row, targetCell.col, state.nextTileType);
     
-    logAi(`Выбран тайл для замены: (${targetCell.row},${targetCell.col}), новый поворот: ${bestRotation}`, 'replace');
+    logAi(`Замена тайла в (${targetCell.row},${targetCell.col}), поворот: ${bestRotation}`, 'replace');
     
     // Сохраняем состояние
     state.lastTilePlacement = {
@@ -749,48 +953,46 @@ function aiPerformReplaceAdjacent(aiPlayer) {
     };
     
     // Заменяем тайл
+    const oldPoints = state.points;
+    const oldTileType = state.nextTileType;
+    
     state.board[targetCell.row][targetCell.col].tileType = state.nextTileType;
     state.board[targetCell.row][targetCell.col].rotation = bestRotation;
     
-    const oldPoints = state.points;
     state.points -= COST.replaceAdjacent;
-    const oldTileType = state.nextTileType;
     state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
     state.nextTileRotation = 0;
     
-    logAi(`Тайл заменен: тип ${oldTileType} → тип ${state.nextTileType}, очки: ${oldPoints} → ${state.points}`, 'success');
+    logAi(`Тайл заменен: новый тип ${oldTileType}, очки: ${oldPoints} → ${state.points}`, 'success');
     updateStatus(`🤖 ИИ заменил тайл в (${targetCell.row},${targetCell.col})`);
+    
     renderBoard();
     renderNextTile();
     
+    // Продолжаем ход, если есть очки
     if (state.points > 0) {
-        setTimeout(aiTurn, 600);
+        setTimeout(aiTurn, 800);
     } else {
-        updateStatus('🤖 ИИ завершает ход.');
-        state.aiThinking = false;
-        setTimeout(() => {
-            endTurn();
-        }, 800);
+        completeAiTurn('🤖 ИИ завершает ход.');
     }
     
     return true;
 }
 
 // Замена любого тайла
-function aiPerformReplace(aiPlayer) {
-    logAi('Пытаемся заменить любой тайл', 'replace');
+function aiPerformReplace(aiPlayer, actionInfo) {
+    const replaceable = actionInfo.cellList || getReplaceable();
     
-    const replaceable = getReplaceable();
-    if (replaceable.length === 0) {
-        logAi('Нет заменяемых тайлов', 'error');
+    if (!replaceable || replaceable.length === 0) {
+        logAi('❌ Нет заменяемых тайлов (неожиданная ошибка)', 'error');
         return false;
     }
     
-    // Выбираем первый попавшийся тайл
+    // Выбираем первый тайл
     const targetCell = replaceable[0];
     const bestRotation = getBestRotationForTile(targetCell.row, targetCell.col, state.nextTileType);
     
-    logAi(`Выбран тайл для замены: (${targetCell.row},${targetCell.col}), новый поворот: ${bestRotation}`, 'replace');
+    logAi(`Замена тайла в (${targetCell.row},${targetCell.col}), поворот: ${bestRotation}`, 'replace');
     
     // Сохраняем состояние
     state.lastTilePlacement = {
@@ -804,28 +1006,27 @@ function aiPerformReplace(aiPlayer) {
     };
     
     // Заменяем тайл
+    const oldPoints = state.points;
+    const oldTileType = state.nextTileType;
+    
     state.board[targetCell.row][targetCell.col].tileType = state.nextTileType;
     state.board[targetCell.row][targetCell.col].rotation = bestRotation;
     
-    const oldPoints = state.points;
     state.points -= COST.replace;
-    const oldTileType = state.nextTileType;
     state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
     state.nextTileRotation = 0;
     
-    logAi(`Тайл заменен: тип ${oldTileType} → тип ${state.nextTileType}, очки: ${oldPoints} → ${state.points}`, 'success');
+    logAi(`Тайл заменен: новый тип ${oldTileType}, очки: ${oldPoints} → ${state.points}`, 'success');
     updateStatus(`🤖 ИИ заменил тайл в (${targetCell.row},${targetCell.col})`);
+    
     renderBoard();
     renderNextTile();
     
+    // Продолжаем ход, если есть очки
     if (state.points > 0) {
-        setTimeout(aiTurn, 600);
+        setTimeout(aiTurn, 800);
     } else {
-        updateStatus('🤖 ИИ завершает ход.');
-        state.aiThinking = false;
-        setTimeout(() => {
-            endTurn();
-        }, 800);
+        completeAiTurn('🤖 ИИ завершает ход.');
     }
     
     return true;
@@ -861,9 +1062,15 @@ function setAiMode(enable) {
         document.querySelectorAll('.mode-btn[data-players]').forEach(btn => {
             btn.classList.toggle('active', parseInt(btn.dataset.players) === 2);
         });
-        updateStatus('Режим против ИИ включен!');
-        createAiLogPanel(); // Создаем панель логов при включении ИИ
+        updateStatus('🤖 Режим против ИИ включен!');
+        
+        // Создаем панель логов
+        if (!document.getElementById('ai-log-panel')) {
+            createAiLogPanel();
+        }
+        
         logAi('Режим ИИ включен', 'success');
+        logAi(`Сложность: ${state.aiDifficulty}`, 'info');
     } else {
         updateStatus('Режим против ИИ выключен');
     }
@@ -877,31 +1084,34 @@ function setAiDifficulty(difficulty) {
         btn.classList.toggle('active', btn.dataset.difficulty === difficulty);
     });
     
+    const difficultyNames = {
+        'easy': 'Легкая',
+        'medium': 'Средняя', 
+        'hard': 'Сложная'
+    };
+    
     if (state.aiOpponent) {
-        const difficultyNames = {
-            'easy': 'Легкая',
-            'medium': 'Средняя', 
-            'hard': 'Сложная'
-        };
-        updateStatus(`Сложность ИИ установлена: ${difficultyNames[difficulty]}`);
+        updateStatus(`🤖 Сложность ИИ: ${difficultyNames[difficulty]}`);
         logAi(`Сложность изменена на: ${difficultyNames[difficulty]}`, 'info');
     }
 }
 
 // Функция для принудительного завершения хода ИИ
 function forceEndAiTurn() {
-    if (state.aiOpponent && state.currentPlayer === 1 && state.aiThinking) {
+    if (state.aiOpponent && state.currentPlayer === 1) {
         logAi('Ход ИИ принудительно завершен игроком', 'warning');
         state.aiThinking = false;
-        updateStatus('🤖 Ход ИИ принудительно завершен');
-        setTimeout(() => {
-            endTurn();
-        }, 300);
+        completeAiTurn('🤖 Ход ИИ принудительно завершен');
     }
 }
 
-// Добавляем обработчики для кнопок ИИ
+// Инициализация ИИ при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
+    // Инициализируем состояние ИИ
+    state.aiThinking = false;
+    state.aiStatus = '';
+    
+    // Добавляем обработчики для кнопок ИИ
     document.getElementById('btn-ai-easy').addEventListener('click', () => {
         setAiMode(true);
         setAiDifficulty('easy');
@@ -920,6 +1130,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Модифицируем кнопку завершения хода для работы с ИИ
     const endTurnBtn = document.getElementById('btn-end');
     if (endTurnBtn) {
+        const originalClick = endTurnBtn.onclick;
+        endTurnBtn.onclick = null; // Удаляем старый обработчик
+        
         endTurnBtn.addEventListener('click', function() {
             if (state.aiOpponent && state.currentPlayer === 1) {
                 forceEndAiTurn();
@@ -929,32 +1142,22 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Инициализируем состояние ИИ
-    state.aiThinking = false;
-    state.aiStatus = '';
-});
-
-// Патчим оригинальные функции для логирования
-(function() {
+    // Патчим функцию endTurn для корректной работы
     const originalEndTurn = window.endTurn;
-    const originalRollDice = window.rollDice;
-    
     window.endTurn = function() {
-        if (state.aiOpponent && state.currentPlayer === 1) {
-            logAi('=== ЗАВЕРШЕНИЕ ХОДА ИИ ===', 'action');
-        }
+        // Сбрасываем флаг ИИ при любом завершении хода
         state.aiThinking = false;
+        
+        // Если это был ход ИИ, логируем
+        if (state.aiOpponent && state.currentPlayer === 1) {
+            logAi('=== ХОД ИИ ЗАВЕРШЕН ===', 'phase');
+        }
+        
+        // Вызываем оригинальную функцию
         if (originalEndTurn) {
             originalEndTurn();
         }
     };
     
-    window.rollDice = function() {
-        if (state.aiOpponent && state.currentPlayer === 1) {
-            logAi('Бросок кубика завершен', 'info');
-        }
-        if (originalRollDice) {
-            originalRollDice();
-        }
-    };
-})();
+    logAi('Модуль ИИ инициализирован', 'success');
+});
