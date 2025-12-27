@@ -632,10 +632,10 @@ function aiMakeDecision() {
             logAi('Выбор стратегии: Легкая', 'phase');
             actionTaken = aiEasyStrategy(possibleActions, aiPlayer, finish);
         } else if (state.aiDifficulty === 'medium') {
-            logAi('Выбор стратегии: Средняя', 'phase');
+            logAi('Выбор стратегия: Средняя', 'phase');
             actionTaken = aiMediumStrategy(possibleActions, aiPlayer, finish);
         } else {
-            logAi('Выбор стратегии: Сложная', 'phase');
+            logAi('Выбор стратегия: Сложная', 'phase');
             actionTaken = aiHardStrategy(possibleActions, aiPlayer, finish);
         }
         
@@ -671,11 +671,49 @@ function completeAiTurn(message) {
         // Проверяем, что мы все еще в режиме ИИ и это все еще ход ИИ
         if (state.aiOpponent && state.currentPlayer === 1) {
             logAi('Передача хода игроку', 'phase');
-            endTurn(); // Используем стандартную функцию завершения хода
+            aiEndTurn(); // Используем специальную функцию завершения хода ИИ
         } else {
             logAi('Ход уже передан', 'debug');
         }
     }, 1000);
+}
+
+// Специальная функция завершения хода для ИИ
+function aiEndTurn() {
+    logAi('Выполняем aiEndTurn()', 'phase');
+    
+    // Сбрасываем состояние ИИ
+    state.aiThinking = false;
+    aiActionInProgress = false;
+    if (aiTurnTimeout) {
+        clearTimeout(aiTurnTimeout);
+        aiTurnTimeout = null;
+    }
+    
+    // Сбрасываем выбранное действие и клетку
+    state.selectedAction = null;
+    state.selectedCell = null;
+    state.lastTilePlacement = null;
+    clearHighlights();
+    
+    // Меняем игрока
+    state.currentPlayer = 0; // Передаем ход игроку
+    state.phase = 'roll';
+    state.points = 0;
+    
+    // Генерируем новый тайл
+    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+    state.nextTileRotation = 0;
+    renderNextTile();
+    
+    // Сбрасываем кубик
+    document.getElementById('dice').textContent = '?';
+    
+    // Обновляем UI
+    updateUI();
+    
+    logAi('Ход ИИ завершен, передано игроку', 'phase');
+    updateStatus(`Игрок, бросьте кубик!`);
 }
 
 // Легкая стратегия ИИ
@@ -1200,9 +1238,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Модифицируем кнопку завершения хода для работы с ИИ
     const endTurnBtn = document.getElementById('btn-end');
     if (endTurnBtn) {
-        const originalClick = endTurnBtn.onclick;
-        endTurnBtn.onclick = null; // Удаляем старый обработчик
-        
         endTurnBtn.addEventListener('click', function() {
             if (state.aiOpponent && state.currentPlayer === 1) {
                 forceEndAiTurn();
@@ -1212,7 +1247,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    // Патчим функцию endTurn для корректной работы
+    // Патчим функцию endTurn в основном файле для корректной работы
     const originalEndTurn = window.endTurn;
     window.endTurn = function() {
         // Сбрасываем флаги ИИ при любом завершении хода
@@ -1225,12 +1260,37 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Если это был ход ИИ, логируем
         if (state.aiOpponent && state.currentPlayer === 1) {
-            logAi('=== ХОД ИИ ЗАВЕРШЕН ===', 'phase');
-        }
-        
-        // Вызываем оригинальную функцию
-        if (originalEndTurn) {
-            originalEndTurn();
+            logAi('=== КОНЕЦ ХОДА ИИ (вызван endTurn) ===', 'phase');
+            
+            // Сбрасываем состояние ИИ
+            state.selectedAction = null;
+            state.selectedCell = null;
+            state.lastTilePlacement = null;
+            clearHighlights();
+            
+            // Меняем игрока
+            state.currentPlayer = 0;
+            state.phase = 'roll';
+            state.points = 0;
+            
+            // Генерируем новый тайл
+            state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+            state.nextTileRotation = 0;
+            renderNextTile();
+            
+            // Сбрасываем кубик
+            document.getElementById('dice').textContent = '?';
+            
+            // Обновляем UI
+            updateUI();
+            
+            logAi('Ход передан игроку (через endTurn)', 'phase');
+            updateStatus(`Игрок, бросьте кубик!`);
+        } else {
+            // Если это ход игрока, вызываем оригинальную функцию
+            if (originalEndTurn) {
+                originalEndTurn();
+            }
         }
     };
     
