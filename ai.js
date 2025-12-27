@@ -57,21 +57,9 @@ function getBestRotationForTile(row, col, tileType) {
     return bestRotation;
 }
 
-// Функция для проверки, создает ли тайл путь к цели
-function createsPathToTarget(row, col, tileType, rotation, targetRow, targetCol) {
-    // Проверяем, соединяется ли тайл с существующими путями
-    if (tileConnectsToNeighbors(row, col, tileType, rotation)) {
-        return true;
-    }
-    
-    // Проверяем расстояние до цели
-    const distToTarget = Math.abs(row - targetRow) + Math.abs(col - targetCol);
-    return distToTarget < 4; // Если близко к цели, все равно размещаем
-}
-
 // Функция для хода ИИ - ИСПРАВЛЕННАЯ ВЕРСИЯ
 function aiTurn() {
-    console.log("AI turn called, phase:", state.phase, "currentPlayer:", state.currentPlayer);
+    console.log("AI turn called, phase:", state.phase, "currentPlayer:", state.currentPlayer, "points:", state.points);
     
     // Если ИИ уже думает, не запускаем новый ход
     if (state.aiThinking) {
@@ -92,7 +80,6 @@ function aiTurn() {
         setTimeout(() => {
             rollDice();
             state.aiThinking = false;
-            // После броска кубика, следующий ход будет в action phase
         }, 1000);
         return;
     }
@@ -103,7 +90,7 @@ function aiTurn() {
         return;
     }
     
-    const delay = state.aiDifficulty === 'easy' ? 1500 : state.aiDifficulty === 'medium' ? 1000 : 500;
+    const delay = state.aiDifficulty === 'easy' ? 1000 : state.aiDifficulty === 'medium' ? 800 : 400;
     
     updateStatus(`🤖 ИИ думает (${state.aiDifficulty === 'easy' ? 'легкий' : state.aiDifficulty === 'medium' ? 'средний' : 'сложный'})...`);
     
@@ -115,26 +102,40 @@ function aiTurn() {
 
 // Основная функция принятия решений ИИ
 function aiMakeDecision() {
-    console.log("AI make decision started");
+    console.log("AI make decision started with points:", state.points);
+    
+    // Если нет очков, завершаем ход
+    if (state.points <= 0) {
+        console.log("No points left, ending turn");
+        updateStatus('🤖 ИИ: очки закончились');
+        state.aiThinking = false;
+        setTimeout(() => {
+            endTurn();
+        }, 500);
+        return;
+    }
     
     const aiPlayer = state.players[1];
     const availableActions = [];
     
     // Собираем все доступные действия
     if (state.points >= COST.move && canMoveAnywhere(aiPlayer)) {
-        availableActions.push({type: 'move', cost: COST.move});
+        const validMoves = getValidMoves(aiPlayer);
+        if (validMoves.length > 0) {
+            availableActions.push({type: 'move', cost: COST.move, possible: true});
+        }
     }
     if (state.points >= COST.placeAdjacent && hasAdjacentEmpty(aiPlayer)) {
-        availableActions.push({type: 'placeAdjacent', cost: COST.placeAdjacent});
+        availableActions.push({type: 'placeAdjacent', cost: COST.placeAdjacent, possible: true});
     }
     if (state.points >= COST.placeAnywhere && hasAnyEmpty()) {
-        availableActions.push({type: 'placeAnywhere', cost: COST.placeAnywhere});
+        availableActions.push({type: 'placeAnywhere', cost: COST.placeAnywhere, possible: true});
     }
     if (state.points >= COST.replaceAdjacent && hasAdjacentReplaceable()) {
-        availableActions.push({type: 'replaceAdjacent', cost: COST.replaceAdjacent});
+        availableActions.push({type: 'replaceAdjacent', cost: COST.replaceAdjacent, possible: true});
     }
     if (state.points >= COST.replace && hasReplaceable()) {
-        availableActions.push({type: 'replace', cost: COST.replace});
+        availableActions.push({type: 'replace', cost: COST.replace, possible: true});
     }
     
     console.log("Available AI actions:", availableActions);
@@ -142,7 +143,21 @@ function aiMakeDecision() {
     if (availableActions.length === 0) {
         // Если нет доступных действий, завершаем ход
         console.log("No available actions, ending turn");
-        updateStatus('🤖 ИИ завершает ход.');
+        updateStatus('🤖 ИИ: нет доступных действий');
+        state.aiThinking = false;
+        setTimeout(() => {
+            endTurn();
+        }, 500);
+        return;
+    }
+    
+    // Сначала проверяем, можем ли мы что-то сделать с текущими очками
+    const affordableActions = availableActions.filter(action => state.points >= action.cost);
+    
+    if (affordableActions.length === 0) {
+        // Если есть очки, но недостаточно для любого действия, принудительно завершаем ход
+        console.log("Points but no affordable actions, forcing end turn");
+        updateStatus('🤖 ИИ: недостаточно очков для действий');
         state.aiThinking = false;
         setTimeout(() => {
             endTurn();
@@ -152,60 +167,60 @@ function aiMakeDecision() {
     
     // В зависимости от сложности выбираем стратегию
     if (state.aiDifficulty === 'easy') {
-        aiEasyStrategy(availableActions);
+        aiEasyStrategy(affordableActions);
     } else if (state.aiDifficulty === 'medium') {
-        aiMediumStrategy(availableActions);
+        aiMediumStrategy(affordableActions);
     } else {
-        aiHardStrategy(availableActions);
+        aiHardStrategy(affordableActions);
     }
 }
 
-// Легкий ИИ: случайные действия, но старается создавать соединения
-function aiEasyStrategy(availableActions) {
-    console.log("AI easy strategy");
+// Легкий ИИ: случайные действия
+function aiEasyStrategy(affordableActions) {
+    console.log("AI easy strategy with affordable:", affordableActions);
     
-    // Сортируем действия по приоритету: движение -> размещение рядом -> остальное
-    const actionPriority = {
-        'move': 5,
-        'placeAdjacent': 4,
-        'placeAnywhere': 3,
-        'replaceAdjacent': 2,
-        'replace': 1
-    };
+    // Выбираем случайное доступное действие
+    const randomAction = affordableActions[Math.floor(Math.random() * affordableActions.length)];
     
-    availableActions.sort((a, b) => actionPriority[b.type] - actionPriority[a.type]);
-    
-    // Выбираем лучшее доступное действие
-    const bestAction = availableActions[0];
+    console.log("Random action chosen:", randomAction.type);
     
     // Выполняем действие
-    switch (bestAction.type) {
+    switch (randomAction.type) {
         case 'move':
-            aiPerformSmartMove();
+            aiPerformSimpleMove();
             break;
         case 'placeAdjacent':
-            aiPerformSmartPlaceAdjacent();
+            aiPerformSimplePlaceAdjacent();
             break;
         case 'placeAnywhere':
-            aiPerformSmartPlaceAnywhere();
+            aiPerformSimplePlaceAnywhere();
             break;
         case 'replaceAdjacent':
-            aiPerformReplaceAdjacent();
+            aiPerformSimpleReplaceAdjacent();
             break;
         case 'replace':
-            aiPerformReplace();
+            aiPerformSimpleReplace();
+            break;
+        default:
+            // Если что-то пошло не так, завершаем ход
+            console.log("Unknown action type, ending turn");
+            updateStatus('🤖 ИИ: завершает ход');
+            state.aiThinking = false;
+            setTimeout(() => {
+                endTurn();
+            }, 500);
             break;
     }
 }
 
-// Средний ИИ: стратегическое движение и создание путей
-function aiMediumStrategy(availableActions) {
+// Средний ИИ: стратегическое движение
+function aiMediumStrategy(affordableActions) {
     console.log("AI medium strategy");
     
     const aiPlayer = state.players[1];
     const finish = state.finishPos[1];
     
-    // 1. Попробовать двигаться к финишу
+    // 1. Приоритет: движение к финишу
     if (state.points >= COST.move && canMoveAnywhere(aiPlayer)) {
         const validMoves = getValidMoves(aiPlayer);
         
@@ -241,146 +256,83 @@ function aiMediumStrategy(availableActions) {
             
             // Продолжаем ход, если есть очки
             if (state.points > 0) {
-                setTimeout(aiTurn, 800);
+                setTimeout(aiTurn, 600);
             } else {
                 updateStatus('🤖 ИИ завершает ход.');
                 state.aiThinking = false;
                 setTimeout(() => {
                     endTurn();
-                }, 1000);
+                }, 800);
             }
             return;
         }
     }
     
-    // 2. Если движение недоступно или невыгодно, используем легкую стратегию
-    aiEasyStrategy(availableActions);
+    // 2. Если движение недоступно, используем легкую стратегию
+    aiEasyStrategy(affordableActions);
 }
 
-// Сложный ИИ: улучшенная стратегия с блокировкой противника
-function aiHardStrategy(availableActions) {
+// Сложный ИИ
+function aiHardStrategy(affordableActions) {
     console.log("AI hard strategy");
-    
-    const aiPlayer = state.players[1];
-    const finish = state.finishPos[1];
-    const humanPlayer = state.players[0];
-    const humanFinish = state.finishPos[0];
-    
-    // 1. Проверяем выигрышный ход
-    if (state.points >= COST.move && canMoveAnywhere(aiPlayer)) {
-        const validMoves = getValidMoves(aiPlayer);
-        const winningMove = validMoves.find(move => 
-            move.row === finish.row && move.col === finish.col
-        );
-        
-        if (winningMove) {
-            // Выигрышный ход!
-            aiPlayer.row = winningMove.row;
-            aiPlayer.col = winningMove.col;
-            state.points -= COST.move;
-            
-            updateStatus(`🤖 ИИ переместился на финиш!`);
-            renderBoard();
-            state.aiThinking = false;
-            setTimeout(() => {
-                showWinModal();
-            }, 500);
-            return;
-        }
-    }
-    
-    // 2. Используем среднюю стратегию
-    aiMediumStrategy(availableActions);
+    // Пока используем среднюю стратегию
+    aiMediumStrategy(affordableActions);
 }
 
-// Умное движение ИИ (выбирает ход, который создает больше возможностей)
-function aiPerformSmartMove() {
+// Простое движение ИИ (в любую доступную клетку)
+function aiPerformSimpleMove() {
     const aiPlayer = state.players[1];
-    const finish = state.finishPos[1];
     const validMoves = getValidMoves(aiPlayer);
     
     if (validMoves.length === 0) {
         console.log("No valid moves for AI");
+        // Попробуем другое действие
         state.aiThinking = false;
-        aiMakeDecision(); // Пробуем другое действие
+        setTimeout(aiTurn, 100);
         return;
     }
     
-    // Оцениваем каждый возможный ход
-    let bestMove = validMoves[0];
-    let bestScore = -Infinity;
+    // Выбираем случайный доступный ход
+    const randomMove = validMoves[Math.floor(Math.random() * validMoves.length)];
     
-    for (const move of validMoves) {
-        let score = 0;
-        
-        // 1. Приближение к финишу
-        const currentDist = Math.abs(aiPlayer.row - finish.row) + Math.abs(aiPlayer.col - finish.col);
-        const newDist = Math.abs(move.row - finish.row) + Math.abs(move.col - finish.col);
-        score += (currentDist - newDist) * 10; // Чем ближе, тем лучше
-        
-        // 2. Количество возможных ходов с новой позиции
-        // Временно перемещаем фишку для оценки
-        const tempRow = aiPlayer.row;
-        const tempCol = aiPlayer.col;
-        aiPlayer.row = move.row;
-        aiPlayer.col = move.col;
-        
-        const futureMoves = getValidMoves(aiPlayer).length;
-        score += futureMoves * 5;
-        
-        // Возвращаем фишку
-        aiPlayer.row = tempRow;
-        aiPlayer.col = tempCol;
-        
-        // 3. Соединение с существующими путями
-        const cell = state.board[move.row][move.col];
-        if (!cell.isEmpty && cell.tileType !== null) {
-            score += 15;
-        }
-        
-        if (score > bestScore) {
-            bestScore = score;
-            bestMove = move;
-        }
-    }
-    
-    // Выполняем лучший ход
-    aiPlayer.row = bestMove.row;
-    aiPlayer.col = bestMove.col;
+    // Выполняем ход
+    aiPlayer.row = randomMove.row;
+    aiPlayer.col = randomMove.col;
     state.points -= COST.move;
     
-    updateStatus(`🤖 ИИ переместился на (${bestMove.row},${bestMove.col})`);
+    updateStatus(`🤖 ИИ переместился на (${randomMove.row},${randomMove.col})`);
     renderBoard();
     
     // Проверяем победу
-    if (checkWin(aiPlayer, state.board[bestMove.row][bestMove.col])) {
-        state.aiThinking = false;
+    if (checkWin(aiPlayer, state.board[randomMove.row][randomMove.col])) {
         setTimeout(() => {
             showWinModal();
         }, 500);
+        state.aiThinking = false;
         return;
     }
     
     if (state.points > 0) {
-        setTimeout(aiTurn, 800);
+        setTimeout(aiTurn, 600);
     } else {
         updateStatus('🤖 ИИ завершает ход.');
         state.aiThinking = false;
         setTimeout(() => {
             endTurn();
-        }, 1000);
+        }, 800);
     }
 }
 
-// Умное размещение тайла рядом (создает соединения)
-function aiPerformSmartPlaceAdjacent() {
+// Простое размещение тайла рядом
+function aiPerformSimplePlaceAdjacent() {
     const aiPlayer = state.players[1];
     const adjacentEmpty = getAdjacentEmpty(aiPlayer);
     
     if (adjacentEmpty.length === 0) {
         console.log("No adjacent empty cells");
+        // Попробуем другое действие
         state.aiThinking = false;
-        aiMakeDecision(); // Пробуем другое действие
+        setTimeout(aiTurn, 100);
         return;
     }
     
@@ -417,24 +369,25 @@ function aiPerformSmartPlaceAdjacent() {
     renderNextTile();
     
     if (state.points > 0) {
-        setTimeout(aiTurn, 800);
+        setTimeout(aiTurn, 600);
     } else {
         updateStatus('🤖 ИИ завершает ход.');
         state.aiThinking = false;
         setTimeout(() => {
             endTurn();
-        }, 1000);
+        }, 800);
     }
 }
 
-// Умное размещение тайла в любом месте (упрощенная версия)
-function aiPerformSmartPlaceAnywhere() {
+// Простое размещение тайла в любом месте
+function aiPerformSimplePlaceAnywhere() {
     const allEmpty = getAllEmpty();
     
     if (allEmpty.length === 0) {
         console.log("No empty cells on board");
+        // Попробуем другое действие
         state.aiThinking = false;
-        aiMakeDecision(); // Пробуем другое действие
+        setTimeout(aiTurn, 100);
         return;
     }
     
@@ -469,24 +422,25 @@ function aiPerformSmartPlaceAnywhere() {
     renderNextTile();
     
     if (state.points > 0) {
-        setTimeout(aiTurn, 800);
+        setTimeout(aiTurn, 600);
     } else {
         updateStatus('🤖 ИИ завершает ход.');
         state.aiThinking = false;
         setTimeout(() => {
             endTurn();
-        }, 1000);
+        }, 800);
     }
 }
 
-// Замена соседнего тайла (улучшает соединения)
-function aiPerformReplaceAdjacent() {
+// Простая замена соседнего тайла
+function aiPerformSimpleReplaceAdjacent() {
     const adjacentReplaceable = getAdjacentReplaceable();
     
     if (adjacentReplaceable.length === 0) {
         console.log("No adjacent replaceable tiles");
+        // Попробуем другое действие
         state.aiThinking = false;
-        aiMakeDecision(); // Пробуем другое действие
+        setTimeout(aiTurn, 100);
         return;
     }
     
@@ -518,24 +472,25 @@ function aiPerformReplaceAdjacent() {
     renderNextTile();
     
     if (state.points > 0) {
-        setTimeout(aiTurn, 800);
+        setTimeout(aiTurn, 600);
     } else {
         updateStatus('🤖 ИИ завершает ход.');
         state.aiThinking = false;
         setTimeout(() => {
             endTurn();
-        }, 1000);
+        }, 800);
     }
 }
 
-// Замена любого тайла (улучшает соединения)
-function aiPerformReplace() {
+// Простая замена любого тайла
+function aiPerformSimpleReplace() {
     const replaceable = getReplaceable();
     
     if (replaceable.length === 0) {
         console.log("No replaceable tiles");
+        // Попробуем другое действие
         state.aiThinking = false;
-        aiMakeDecision(); // Пробуем другое действие
+        setTimeout(aiTurn, 100);
         return;
     }
     
@@ -566,13 +521,13 @@ function aiPerformReplace() {
     renderNextTile();
     
     if (state.points > 0) {
-        setTimeout(aiTurn, 800);
+        setTimeout(aiTurn, 600);
     } else {
         updateStatus('🤖 ИИ завершает ход.');
         state.aiThinking = false;
         setTimeout(() => {
             endTurn();
-        }, 1000);
+        }, 800);
     }
 }
 
@@ -638,6 +593,18 @@ function checkAiWin() {
     return false;
 }
 
+// Функция для принудительного завершения хода ИИ (может быть вызвана игроком)
+function forceEndAiTurn() {
+    if (state.aiOpponent && state.currentPlayer === 1 && state.aiThinking) {
+        console.log("Force ending AI turn");
+        state.aiThinking = false;
+        updateStatus('🤖 Ход ИИ принудительно завершен');
+        setTimeout(() => {
+            endTurn();
+        }, 300);
+    }
+}
+
 // Добавляем обработчики для кнопок ИИ
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('btn-ai-easy').addEventListener('click', () => {
@@ -655,7 +622,25 @@ document.addEventListener('DOMContentLoaded', function() {
         setAiDifficulty('hard');
     });
     
+    // Добавляем кнопку принудительного завершения хода ИИ
+    const endTurnBtn = document.getElementById('btn-end');
+    const originalEndTurn = endTurnBtn.onclick;
+    endTurnBtn.onclick = function() {
+        if (state.aiOpponent && state.currentPlayer === 1 && state.aiThinking) {
+            forceEndAiTurn();
+        } else {
+            originalEndTurn.call(this);
+        }
+    };
+    
     // Инициализируем состояние ИИ
     state.aiThinking = false;
     state.aiStatus = '';
 });
+
+// Добавляем модификацию функции endTurn для корректной работы с ИИ
+const originalEndTurn = window.endTurn;
+window.endTurn = function() {
+    state.aiThinking = false;
+    originalEndTurn();
+};
