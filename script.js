@@ -28,7 +28,9 @@ const state = {
     nextTileRotation: 0,
     startPos: [{ row: 0, col: 0 }, { row: 0, col: 8 }],
     finishPos: [{ row: 8, col: 8 }, { row: 8, col: 0 }],
-    lastTilePlacement: null // Новое поле для хранения последнего размещения тайла
+    lastTilePlacement: null,
+    aiOpponent: false, // Новое поле: игра против ИИ
+    aiDifficulty: 'medium' // Сложность ИИ: easy, medium, hard
 };
 
 // Цвета игроков
@@ -372,7 +374,13 @@ function initBoard() {
     renderBoard();
     renderNextTile();
     updateUI();
-    updateStatus('Бросьте кубик, чтобы получить очки!');
+    
+    if (state.aiOpponent && state.currentPlayer === 1) {
+        updateStatus('Ход ИИ...');
+        setTimeout(aiTurn, 1000);
+    } else {
+        updateStatus('Бросьте кубик, чтобы получить очки!');
+    }
 }
 
 function renderBoard() {
@@ -427,7 +435,10 @@ function renderBoard() {
                 cellEl.classList.add('empty-cell');
             }
 
-            cellEl.addEventListener('click', () => handleCellClick(r, c));
+            // Для игрока клетки кликабельны, для ИИ - нет
+            if (!state.aiOpponent || state.currentPlayer === 0) {
+                cellEl.addEventListener('click', () => handleCellClick(r, c));
+            }
 
             // Add player tokens
             for (let p = 0; p < state.numPlayers; p++) {
@@ -436,6 +447,7 @@ function renderBoard() {
                     token.className = `player-token p${p + 1}`;
                     if (state.players[p].hasFlag) token.classList.add('has-flag');
                     if (p === state.currentPlayer) token.classList.add('current-turn');
+                    if (state.aiOpponent && p === 1) token.classList.add('ai-token');
                     cellEl.appendChild(token);
                 }
             }
@@ -479,7 +491,13 @@ function rollDice() {
 
             state.phase = 'action';
             updateUI();
-            updateStatus(`Выпало ${value}! Кликните на пустую клетку чтобы разместить тайл, или выберите действие.`);
+            
+            if (state.aiOpponent && state.currentPlayer === 1) {
+                updateStatus(`ИИ выбросил ${value}! ИИ думает...`);
+                setTimeout(aiTurn, 500);
+            } else {
+                updateStatus(`Выпало ${value}! Кликните на пустую клетку чтобы разместить тайл, или выберите действие.`);
+            }
         }
     }, 50);
 }
@@ -502,30 +520,42 @@ function updateUI() {
     const player = state.players[state.currentPlayer];
 
     document.getElementById('btn-move').disabled =
-        state.phase !== 'action' || state.points < COST.move || !canMoveAnywhere(player);
+        state.phase !== 'action' || state.points < COST.move || !canMoveAnywhere(player) || (state.aiOpponent && state.currentPlayer === 1);
 
     document.getElementById('btn-place-adj').disabled =
-        state.phase !== 'action' || state.points < COST.placeAdjacent || !hasAdjacentEmpty(player);
+        state.phase !== 'action' || state.points < COST.placeAdjacent || !hasAdjacentEmpty(player) || (state.aiOpponent && state.currentPlayer === 1);
 
     document.getElementById('btn-place-any').disabled =
-        state.phase !== 'action' || state.points < COST.placeAnywhere || !hasAnyEmpty();
+        state.phase !== 'action' || state.points < COST.placeAnywhere || !hasAnyEmpty() || (state.aiOpponent && state.currentPlayer === 1);
 
     document.getElementById('btn-replace-adj').disabled =
-        state.phase !== 'action' || state.points < COST.replaceAdjacent || !hasAdjacentReplaceable();
+        state.phase !== 'action' || state.points < COST.replaceAdjacent || !hasAdjacentReplaceable() || (state.aiOpponent && state.currentPlayer === 1);
 
     document.getElementById('btn-replace').disabled =
-        state.phase !== 'action' || state.points < COST.replace || !hasReplaceable();
+        state.phase !== 'action' || state.points < COST.replace || !hasReplaceable() || (state.aiOpponent && state.currentPlayer === 1);
 
-    document.getElementById('btn-end').disabled = state.phase !== 'action';
+    document.getElementById('btn-end').disabled = state.phase !== 'action' || (state.aiOpponent && state.currentPlayer === 1);
     
     // Кнопка отмены последнего действия - теперь доступна всегда, когда есть что отменять
     document.getElementById('btn-undo').disabled = 
-        state.phase !== 'action' || state.lastTilePlacement === null;
+        state.phase !== 'action' || state.lastTilePlacement === null || (state.aiOpponent && state.currentPlayer === 1);
 
     // Player sections
     document.getElementById('player1-section').classList.toggle('active', state.currentPlayer === 0);
     document.getElementById('player2-section').classList.toggle('active', state.currentPlayer === 1);
     document.getElementById('player2-section').style.display = state.numPlayers > 1 ? 'flex' : 'none';
+
+    // Если игра против ИИ, меняем название игрока 2
+    const player2Title = document.querySelector('#player2-section .player-title');
+    if (player2Title) {
+        if (state.aiOpponent) {
+            player2Title.textContent = 'ИИ';
+            player2Title.style.color = PLAYER_COLORS[1].primary;
+        } else {
+            player2Title.textContent = 'Игрок 2';
+            player2Title.style.color = PLAYER_COLORS[1].primary;
+        }
+    }
 
     // Highlight selected action
     document.querySelectorAll('.action-btn').forEach(btn => btn.classList.remove('selected'));
@@ -542,16 +572,10 @@ function updateUI() {
     
     // Обновляем заголовки игроков с цветами
     const player1Title = document.querySelector('#player1-section .player-title');
-    const player2Title = document.querySelector('#player2-section .player-title');
     
     if (player1Title) {
         player1Title.style.color = PLAYER_COLORS[0].primary;
-        player1Title.textContent = 'Игрок 1';
-    }
-    
-    if (player2Title) {
-        player2Title.style.color = PLAYER_COLORS[1].primary;
-        player2Title.textContent = 'Игрок 2';
+        player1Title.textContent = 'Игрок';
     }
 }
 
@@ -754,6 +778,11 @@ function clearHighlights() {
 function handleCellClick(row, col) {
     if (state.phase !== 'action') {
         updateStatus('Сначала бросьте кубик!');
+        return;
+    }
+
+    // Если игра против ИИ и сейчас ход ИИ, блокируем клики
+    if (state.aiOpponent && state.currentPlayer === 1) {
         return;
     }
 
@@ -982,7 +1011,7 @@ function undoLastPlacement() {
     state.nextTileType = placement.nextTileTypeBefore;
     state.nextTileRotation = placement.nextTileRotationBefore;
     
-    // Сбрасываем запись о последнем размещении
+    // Сбрасываем запись о последнего размещения
     state.lastTilePlacement = null;
     
     renderBoard();
@@ -1088,8 +1117,9 @@ function showWinModal() {
     document.getElementById('modal-title').style.color = playerColor.primary;
     
     if (state.numPlayers > 1) {
+        const winnerName = state.currentPlayer === 0 ? 'Игрок' : (state.aiOpponent ? 'ИИ' : 'Игрок 2');
         document.getElementById('modal-text').innerHTML = 
-            `<span style="color: ${playerColor.primary}; font-weight: bold;">Игрок ${state.currentPlayer + 1}</span> победил!`;
+            `<span style="color: ${playerColor.primary}; font-weight: bold;">${winnerName}</span> победил!`;
     } else {
         document.getElementById('modal-text').innerHTML = 
             `<span style="color: ${playerColor.primary}; font-weight: bold;">Вы прошли лабиринт!</span>`;
@@ -1120,7 +1150,501 @@ function endTurn() {
 
     document.getElementById('dice').textContent = '?';
     updateUI();
-    updateStatus(`Игрок ${state.currentPlayer + 1}, бросьте кубик!`);
+    
+    if (state.aiOpponent && state.currentPlayer === 1) {
+        updateStatus('Ход ИИ...');
+        setTimeout(aiTurn, 1000);
+    } else {
+        updateStatus(`Игрок ${state.currentPlayer + 1}, бросьте кубик!`);
+    }
+}
+
+// ==================== ИИ БОТ ====================
+
+function aiTurn() {
+    if (state.phase === 'roll') {
+        // ИИ бросает кубик
+        rollDice();
+        return;
+    }
+    
+    if (state.phase !== 'action' || state.currentPlayer !== 1) return;
+    
+    const aiPlayer = state.players[1];
+    const delay = state.aiDifficulty === 'easy' ? 1500 : state.aiDifficulty === 'medium' ? 1000 : 500;
+    
+    // Ждем немного для реалистичности
+    setTimeout(() => {
+        aiMakeDecision();
+    }, delay);
+}
+
+function aiMakeDecision() {
+    const aiPlayer = state.players[1];
+    const finish = state.finishPos[1];
+    let decisionMade = false;
+    
+    // Стратегия в зависимости от сложности
+    if (state.aiDifficulty === 'easy') {
+        decisionMade = aiEasyStrategy();
+    } else if (state.aiDifficulty === 'medium') {
+        decisionMade = aiMediumStrategy();
+    } else {
+        decisionMade = aiHardStrategy();
+    }
+    
+    // Если решение не принято, завершаем ход
+    if (!decisionMade) {
+        updateStatus('ИИ завершает ход.');
+        setTimeout(() => {
+            endTurn();
+        }, 500);
+    }
+}
+
+function aiEasyStrategy() {
+    // Легкий ИИ: случайные действия
+    const aiPlayer = state.players[1];
+    const availableActions = [];
+    
+    // Проверяем возможные действия
+    if (state.points >= COST.move && canMoveAnywhere(aiPlayer)) {
+        availableActions.push('move');
+    }
+    if (state.points >= COST.placeAdjacent && hasAdjacentEmpty(aiPlayer)) {
+        availableActions.push('placeAdjacent');
+    }
+    if (state.points >= COST.placeAnywhere && hasAnyEmpty()) {
+        availableActions.push('placeAnywhere');
+    }
+    if (state.points >= COST.replaceAdjacent && hasAdjacentReplaceable()) {
+        availableActions.push('replaceAdjacent');
+    }
+    if (state.points >= COST.replace && hasReplaceable()) {
+        availableActions.push('replace');
+    }
+    
+    if (availableActions.length === 0) {
+        return false;
+    }
+    
+    // Выбираем случайное действие
+    const randomAction = availableActions[Math.floor(Math.random() * availableActions.length)];
+    
+    // Выполняем действие
+    switch (randomAction) {
+        case 'move':
+            return aiPerformMove();
+        case 'placeAdjacent':
+            return aiPerformPlaceAdjacent();
+        case 'placeAnywhere':
+            return aiPerformPlaceAnywhere();
+        case 'replaceAdjacent':
+            return aiPerformReplaceAdjacent();
+        case 'replace':
+            return aiPerformReplace();
+    }
+    
+    return false;
+}
+
+function aiMediumStrategy() {
+    // Средний ИИ: пытается двигаться к финишу
+    const aiPlayer = state.players[1];
+    const finish = state.finishPos[1];
+    
+    // 1. Попробовать двигаться к финишу
+    if (state.points >= COST.move && canMoveAnywhere(aiPlayer)) {
+        const validMoves = getValidMoves(aiPlayer);
+        // Ищем движение, которое приближает к финишу
+        const movesTowardsFinish = validMoves.filter(move => {
+            const currentDist = Math.abs(aiPlayer.row - finish.row) + Math.abs(aiPlayer.col - finish.col);
+            const newDist = Math.abs(move.row - finish.row) + Math.abs(move.col - finish.col);
+            return newDist < currentDist;
+        });
+        
+        if (movesTowardsFinish.length > 0) {
+            // Выбираем лучшее движение
+            const bestMove = movesTowardsFinish.reduce((best, current) => {
+                const bestDist = Math.abs(best.row - finish.row) + Math.abs(best.col - finish.col);
+                const currentDist = Math.abs(current.row - finish.row) + Math.abs(current.col - finish.col);
+                return currentDist < bestDist ? current : best;
+            });
+            
+            // Выполняем движение
+            aiPlayer.row = bestMove.row;
+            aiPlayer.col = bestMove.col;
+            state.points -= COST.move;
+            
+            updateStatus(`ИИ переместился на (${bestMove.row},${bestMove.col})`);
+            renderBoard();
+            checkAiWin();
+            
+            // Продолжаем ход, если есть очки
+            if (state.points > 0) {
+                setTimeout(aiTurn, 800);
+            } else {
+                updateStatus('ИИ завершает ход.');
+                setTimeout(() => {
+                    endTurn();
+                }, 1000);
+            }
+            return true;
+        }
+    }
+    
+    // 2. Если нельзя двигаться, размещаем тайлы рядом
+    if (state.points >= COST.placeAdjacent && hasAdjacentEmpty(aiPlayer)) {
+        return aiPerformPlaceAdjacent();
+    }
+    
+    // 3. Иначе случайное действие
+    return aiEasyStrategy();
+}
+
+function aiHardStrategy() {
+    // Сложный ИИ: стратегическая игра
+    const aiPlayer = state.players[1];
+    const finish = state.finishPos[1];
+    const humanPlayer = state.players[0];
+    const humanFinish = state.finishPos[0];
+    
+    // 1. Проверяем, можем ли мы выиграть на этом ходу
+    if (state.points >= COST.move && canMoveAnywhere(aiPlayer)) {
+        const validMoves = getValidMoves(aiPlayer);
+        const winningMove = validMoves.find(move => 
+            move.row === finish.row && move.col === finish.col
+        );
+        
+        if (winningMove) {
+            // Выигрышный ход!
+            aiPlayer.row = winningMove.row;
+            aiPlayer.col = winningMove.col;
+            state.points -= COST.move;
+            
+            updateStatus(`ИИ переместился на финиш!`);
+            renderBoard();
+            setTimeout(() => {
+                checkAiWin();
+            }, 500);
+            return true;
+        }
+    }
+    
+    // 2. Блокируем игрока, если он близко к победе
+    if (state.points >= COST.placeAnywhere && hasAnyEmpty()) {
+        const humanDist = Math.abs(humanPlayer.row - humanFinish.row) + Math.abs(humanPlayer.col - humanFinish.col);
+        if (humanDist <= 3) {
+            // Игрок близко к победе, пытаемся заблокировать
+            const emptyCells = getAllEmpty();
+            const blockingCells = emptyCells.filter(cell => {
+                // Клетки рядом с путем игрока к финишу
+                const cellDistToHumanPath = Math.abs(cell.row - humanPlayer.row) + Math.abs(cell.col - humanPlayer.col);
+                return cellDistToHumanPath <= 2;
+            });
+            
+            if (blockingCells.length > 0) {
+                // Размещаем тайл в блокирующей клетке
+                const bestBlock = blockingCells[Math.floor(Math.random() * blockingCells.length)];
+                
+                // Сохраняем для возможной отмены (хотя ИИ не отменяет)
+                state.lastTilePlacement = {
+                    action: 'placeAnywhere',
+                    row: bestBlock.row,
+                    col: bestBlock.col,
+                    previousCellState: { ...state.board[bestBlock.row][bestBlock.col] },
+                    pointsUsed: COST.placeAnywhere,
+                    nextTileTypeBefore: state.nextTileType,
+                    nextTileRotationBefore: state.nextTileRotation
+                };
+                
+                state.board[bestBlock.row][bestBlock.col] = {
+                    ...state.board[bestBlock.row][bestBlock.col],
+                    tileType: state.nextTileType,
+                    rotation: state.nextTileRotation,
+                    isEmpty: false
+                };
+                
+                state.points -= COST.placeAnywhere;
+                state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+                state.nextTileRotation = 0;
+                
+                updateStatus(`ИИ разместил тайл в (${bestBlock.row},${bestBlock.col}) для блокировки`);
+                renderBoard();
+                renderNextTile();
+                
+                // Продолжаем ход
+                if (state.points > 0) {
+                    setTimeout(aiTurn, 800);
+                } else {
+                    updateStatus('ИИ завершает ход.');
+                    setTimeout(() => {
+                        endTurn();
+                    }, 1000);
+                }
+                return true;
+            }
+        }
+    }
+    
+    // 3. Используем среднюю стратегию
+    return aiMediumStrategy();
+}
+
+function aiPerformMove() {
+    const aiPlayer = state.players[1];
+    const validMoves = getValidMoves(aiPlayer);
+    
+    if (validMoves.length === 0) {
+        return false;
+    }
+    
+    // Выбираем случайный ход
+    const randomMove = validMoves[Math.floor(Math.random() * validMoves.length)];
+    aiPlayer.row = randomMove.row;
+    aiPlayer.col = randomMove.col;
+    state.points -= COST.move;
+    
+    updateStatus(`ИИ переместился на (${randomMove.row},${randomMove.col})`);
+    renderBoard();
+    checkAiWin();
+    
+    // Продолжаем ход, если есть очки
+    if (state.points > 0) {
+        setTimeout(aiTurn, 800);
+    } else {
+        updateStatus('ИИ завершает ход.');
+        setTimeout(() => {
+            endTurn();
+        }, 1000);
+    }
+    return true;
+}
+
+function aiPerformPlaceAdjacent() {
+    const aiPlayer = state.players[1];
+    const adjacentEmpty = getAdjacentEmpty(aiPlayer);
+    
+    if (adjacentEmpty.length === 0) {
+        return false;
+    }
+    
+    // Выбираем случайную соседнюю клетку
+    const randomCell = adjacentEmpty[Math.floor(Math.random() * adjacentEmpty.length)];
+    
+    // Сохраняем для возможной отмены
+    state.lastTilePlacement = {
+        action: 'placeAdjacent',
+        row: randomCell.row,
+        col: randomCell.col,
+        previousCellState: { ...state.board[randomCell.row][randomCell.col] },
+        pointsUsed: COST.placeAdjacent,
+        nextTileTypeBefore: state.nextTileType,
+        nextTileRotationBefore: state.nextTileRotation
+    };
+    
+    // Place tile
+    state.board[randomCell.row][randomCell.col] = {
+        ...state.board[randomCell.row][randomCell.col],
+        tileType: state.nextTileType,
+        rotation: state.nextTileRotation,
+        isEmpty: false
+    };
+
+    state.points -= COST.placeAdjacent;
+    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+    state.nextTileRotation = 0;
+    
+    updateStatus(`ИИ разместил тайл рядом с фишкой в (${randomCell.row},${randomCell.col})`);
+    renderBoard();
+    renderNextTile();
+    
+    // Продолжаем ход
+    if (state.points > 0) {
+        setTimeout(aiTurn, 800);
+    } else {
+        updateStatus('ИИ завершает ход.');
+        setTimeout(() => {
+            endTurn();
+        }, 1000);
+    }
+    return true;
+}
+
+function aiPerformPlaceAnywhere() {
+    const allEmpty = getAllEmpty();
+    
+    if (allEmpty.length === 0) {
+        return false;
+    }
+    
+    // Выбираем случайную клетку
+    const randomCell = allEmpty[Math.floor(Math.random() * allEmpty.length)];
+    
+    // Сохраняем для возможной отмены
+    state.lastTilePlacement = {
+        action: 'placeAnywhere',
+        row: randomCell.row,
+        col: randomCell.col,
+        previousCellState: { ...state.board[randomCell.row][randomCell.col] },
+        pointsUsed: COST.placeAnywhere,
+        nextTileTypeBefore: state.nextTileType,
+        nextTileRotationBefore: state.nextTileRotation
+    };
+    
+    // Place tile
+    state.board[randomCell.row][randomCell.col] = {
+        ...state.board[randomCell.row][randomCell.col],
+        tileType: state.nextTileType,
+        rotation: state.nextTileRotation,
+        isEmpty: false
+    };
+
+    state.points -= COST.placeAnywhere;
+    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+    state.nextTileRotation = 0;
+    
+    updateStatus(`ИИ разместил тайл в (${randomCell.row},${randomCell.col})`);
+    renderBoard();
+    renderNextTile();
+    
+    // Продолжаем ход
+    if (state.points > 0) {
+        setTimeout(aiTurn, 800);
+    } else {
+        updateStatus('ИИ завершает ход.');
+        setTimeout(() => {
+            endTurn();
+        }, 1000);
+    }
+    return true;
+}
+
+function aiPerformReplaceAdjacent() {
+    const adjacentReplaceable = getAdjacentReplaceable();
+    
+    if (adjacentReplaceable.length === 0) {
+        return false;
+    }
+    
+    // Выбираем случайный тайл для замены
+    const randomCell = adjacentReplaceable[Math.floor(Math.random() * adjacentReplaceable.length)];
+    
+    // Сохраняем для возможной отмены
+    state.lastTilePlacement = {
+        action: 'replace',
+        row: randomCell.row,
+        col: randomCell.col,
+        previousCellState: { ...state.board[randomCell.row][randomCell.col] },
+        pointsUsed: COST.replaceAdjacent,
+        nextTileTypeBefore: state.nextTileType,
+        nextTileRotationBefore: state.nextTileRotation
+    };
+    
+    // Replace tile
+    state.board[randomCell.row][randomCell.col].tileType = state.nextTileType;
+    state.board[randomCell.row][randomCell.col].rotation = state.nextTileRotation;
+    state.points -= COST.replaceAdjacent;
+    
+    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+    state.nextTileRotation = 0;
+    
+    updateStatus(`ИИ заменил тайл в (${randomCell.row},${randomCell.col})`);
+    renderBoard();
+    renderNextTile();
+    
+    // Продолжаем ход
+    if (state.points > 0) {
+        setTimeout(aiTurn, 800);
+    } else {
+        updateStatus('ИИ завершает ход.');
+        setTimeout(() => {
+            endTurn();
+        }, 1000);
+    }
+    return true;
+}
+
+function aiPerformReplace() {
+    const replaceable = getReplaceable();
+    
+    if (replaceable.length === 0) {
+        return false;
+    }
+    
+    // Выбираем случайный тайл для замены
+    const randomCell = replaceable[Math.floor(Math.random() * replaceable.length)];
+    
+    // Сохраняем для возможной отмены
+    state.lastTilePlacement = {
+        action: 'replace',
+        row: randomCell.row,
+        col: randomCell.col,
+        previousCellState: { ...state.board[randomCell.row][randomCell.col] },
+        pointsUsed: COST.replace,
+        nextTileTypeBefore: state.nextTileType,
+        nextTileRotationBefore: state.nextTileRotation
+    };
+    
+    // Replace tile
+    state.board[randomCell.row][randomCell.col].tileType = state.nextTileType;
+    state.board[randomCell.row][randomCell.col].rotation = state.nextTileRotation;
+    state.points -= COST.replace;
+    
+    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+    state.nextTileRotation = 0;
+    
+    updateStatus(`ИИ заменил тайл в (${randomCell.row},${randomCell.col})`);
+    renderBoard();
+    renderNextTile();
+    
+    // Продолжаем ход
+    if (state.points > 0) {
+        setTimeout(aiTurn, 800);
+    } else {
+        updateStatus('ИИ завершает ход.');
+        setTimeout(() => {
+            endTurn();
+        }, 1000);
+    }
+    return true;
+}
+
+function checkAiWin() {
+    const aiPlayer = state.players[1];
+    const finish = state.finishPos[1];
+    
+    if (checkWin(aiPlayer, state.board[aiPlayer.row][aiPlayer.col])) {
+        setTimeout(() => {
+            showWinModal();
+        }, 500);
+        return true;
+    }
+    return false;
+}
+
+// Функция для установки режима игры с ИИ
+function setAiMode(enable) {
+    state.aiOpponent = enable;
+    if (enable) {
+        state.numPlayers = 2;
+        document.querySelectorAll('.mode-btn[data-players]').forEach(btn => {
+            btn.classList.toggle('active', parseInt(btn.dataset.players) === 2);
+        });
+    }
+    restartGame();
+}
+
+// Функция для установки сложности ИИ
+function setAiDifficulty(difficulty) {
+    state.aiDifficulty = difficulty;
+    document.querySelectorAll('.mode-btn[data-difficulty]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.difficulty === difficulty);
+    });
+    
+    if (state.aiOpponent) {
+        updateStatus(`Сложность ИИ установлена: ${difficulty === 'easy' ? 'Легкая' : difficulty === 'medium' ? 'Средняя' : 'Сложная'}`);
+    }
 }
 
 function updateStatus(text) {
@@ -1137,6 +1661,9 @@ function setGameMode(mode) {
 
 function setPlayers(num) {
     state.numPlayers = num;
+    if (num === 1) {
+        state.aiOpponent = false;
+    }
     document.querySelectorAll('.mode-btn[data-players]').forEach(btn => {
         btn.classList.toggle('active', parseInt(btn.dataset.players) === num);
     });
@@ -1207,6 +1734,22 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e =
 
 // Добавляем обработчик для кнопки отмены
 document.getElementById('btn-undo').addEventListener('click', undoLastPlacement);
+
+// Добавляем обработчики для кнопок ИИ
+document.getElementById('btn-ai-easy').addEventListener('click', () => {
+    setAiMode(true);
+    setAiDifficulty('easy');
+});
+
+document.getElementById('btn-ai-medium').addEventListener('click', () => {
+    setAiMode(true);
+    setAiDifficulty('medium');
+});
+
+document.getElementById('btn-ai-hard').addEventListener('click', () => {
+    setAiMode(true);
+    setAiDifficulty('hard');
+});
 
 // Init
 initBoard();
