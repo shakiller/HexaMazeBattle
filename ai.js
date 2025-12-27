@@ -464,11 +464,33 @@ function aiTurn() {
         
         // Используем таймаут для отслеживания
         aiTurnTimeout = setTimeout(() => {
+            logAi('Вызываем rollDice()', 'debug');
             rollDice();
-            state.aiThinking = false; // Сбрасываем флаг после броска
-            aiActionInProgress = false;
-            logAi('Бросок кубика завершен', 'phase');
-            aiTurnTimeout = null;
+            
+            // После броска кубика, должен наступить action phase
+            // Проверяем это через небольшую задержку
+            setTimeout(() => {
+                logAi(`После броска: фаза=${state.phase}, очки=${state.points}`, 'debug');
+                
+                if (state.phase === 'action' && state.points > 0) {
+                    logAi(`Бросок завершен! Выпало ${state.points} очков`, 'success');
+                    state.aiThinking = false;
+                    aiActionInProgress = false;
+                    aiTurnTimeout = null;
+                    
+                    // Продолжаем ход в action phase
+                    setTimeout(aiTurn, 500);
+                } else {
+                    logAi(`Проблема после броска: фаза=${state.phase}, очки=${state.points}`, 'error');
+                    state.aiThinking = false;
+                    aiActionInProgress = false;
+                    aiTurnTimeout = null;
+                    
+                    // Если что-то пошло не так, передаем ход
+                    emergencyEndAiTurn();
+                }
+            }, 300);
+            
         }, 1000);
         return;
     }
@@ -1298,12 +1320,22 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
     
-    // Патчим rollDice для логирования
+    // Патчим rollDice для логирования броска ИИ
     const originalRollDice = window.rollDice;
     window.rollDice = function() {
+        logAi('Вызов rollDice()', 'debug');
+        
         if (originalRollDice) {
             originalRollDice();
         }
+        
+        // Логируем результат броска для ИИ
+        if (state.aiOpponent && state.currentPlayer === 1) {
+            setTimeout(() => {
+                logAi(`Бросок завершен. Выпало: ${state.points} очков, фаза: ${state.phase}`, 'phase');
+            }, 1100); // Чуть больше времени, чем анимация броска
+        }
+        
         // После броска кубика обновляем UI
         setTimeout(updateUI, 100);
     };
