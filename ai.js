@@ -232,7 +232,8 @@ function logAi(message, type = 'info') {
         'replace': { emoji: '🔄', color: '#f97316', bg: 'rgba(249, 115, 22, 0.15)' },
         'action': { emoji: '🎯', color: '#ec4899', bg: 'rgba(236, 72, 153, 0.15)' },
         'phase': { emoji: '🔄', color: '#a855f7', bg: 'rgba(168, 85, 247, 0.15)' },
-        'debug': { emoji: '🔍', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.15)' }
+        'debug': { emoji: '🔍', color: '#94a3b8', bg: 'rgba(148, 163, 184, 0.15)' },
+        'roll': { emoji: '🎲', color: '#f472b6', bg: 'rgba(244, 114, 182, 0.15)' }
     };
     
     const config = typeConfig[type] || typeConfig.info;
@@ -262,7 +263,7 @@ function logAi(message, type = 'info') {
     console.log(`%c🤖 AI ${type}: ${message}`, `color: ${config.color}`);
 }
 
-// Копирование лога - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// Копирование лога
 function copyAiLog() {
     const logContent = document.getElementById('ai-log-content');
     if (!logContent) {
@@ -271,7 +272,6 @@ function copyAiLog() {
     }
     
     try {
-        // Получаем весь текст из лога
         let text = '';
         const entries = logContent.querySelectorAll('div');
         entries.forEach(entry => {
@@ -281,7 +281,6 @@ function copyAiLog() {
             text += `${timestamp} ${emoji} ${message}\n`;
         });
         
-        // Используем современный API
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(text.trim())
                 .then(() => {
@@ -302,7 +301,6 @@ function copyAiLog() {
                     fallbackCopy(text.trim());
                 });
         } else {
-            // Fallback для старых браузеров или HTTP
             fallbackCopy(text.trim());
         }
     } catch (error) {
@@ -340,8 +338,6 @@ function fallbackCopy(text) {
     } catch (err) {
         console.error('Fallback copy error:', err);
         logAi('Не удалось скопировать. Разрешите доступ к буферу обмена или используйте Ctrl+C', 'error');
-        
-        // Показываем текст для ручного копирования
         alert('Скопируйте текст вручную:\n\n' + text.substring(0, 1000) + (text.length > 1000 ? '...' : ''));
     } finally {
         document.body.removeChild(textarea);
@@ -358,17 +354,19 @@ function clearAiLog() {
 }
 
 // Переопределяем функцию обновления статуса для логирования
-const originalUpdateStatus = updateStatus;
-updateStatus = function(text) {
-    originalUpdateStatus(text);
-    
-    // Логируем статусы связанные с ИИ
-    if (state.aiOpponent && state.currentPlayer === 1) {
-        if (text.includes('ИИ') || text.includes('🤖')) {
-            logAi(`Статус: ${text}`, 'phase');
+if (typeof updateStatus === 'function') {
+    const originalUpdateStatus = updateStatus;
+    updateStatus = function(text) {
+        originalUpdateStatus(text);
+        
+        // Логируем статусы связанные с ИИ
+        if (state.aiOpponent && state.currentPlayer === 1) {
+            if (text.includes('ИИ') || text.includes('🤖') || text.includes('бросает')) {
+                logAi(`Статус: ${text}`, 'phase');
+            }
         }
-    }
-};
+    };
+}
 
 // Функция для проверки, соединяет ли тайл с соседними тайлами
 function tileConnectsToNeighbors(row, col, tileType, rotation) {
@@ -427,34 +425,37 @@ function getBestRotationForTile(row, col, tileType) {
     return bestRotation;
 }
 
-// Глобальная переменная для предотвращения дублирующих вызовов
+// Глобальные переменные для управления ходом ИИ
 let aiTurnTimeout = null;
 let aiActionInProgress = false;
+let aiTurnLock = false; // Блокировка для предотвращения дублирующих вызовов
 
 // Функция для хода ИИ - ИСПРАВЛЕННАЯ ВЕРСИЯ
 function aiTurn() {
-    logAi(`=== НАЧАЛО ХОДА ИИ ===`, 'action');
-    logAi(`Фаза: ${state.phase}, Очки: ${state.points}, Тайл: ${state.nextTileType}`, 'info');
-    
-    // Очищаем предыдущий таймаут
-    if (aiTurnTimeout) {
-        clearTimeout(aiTurnTimeout);
-        aiTurnTimeout = null;
+    // Защита от дублирующих вызовов
+    if (aiTurnLock) {
+        logAi('Ход ИИ уже выполняется (lock)', 'warning');
+        return;
     }
+    
+    logAi(`=== НАЧАЛО ХОДА ИИ ===`, 'action');
+    logAi(`Состояние: player=${state.currentPlayer}, phase=${state.phase}, points=${state.points}, tile=${state.nextTileType}`, 'debug');
     
     // Проверяем, что сейчас действительно ход ИИ
     if (!state.aiOpponent || state.currentPlayer !== 1) {
         logAi('Сейчас не ход ИИ (проверка не прошла)', 'warning');
         state.aiThinking = false;
         aiActionInProgress = false;
+        aiTurnLock = false;
         return;
     }
     
     if (state.aiThinking || aiActionInProgress) {
-        logAi('ИИ уже думает или действие в процессе, пропускаем дублирующий вызов', 'warning');
+        logAi('ИИ уже думает или действие в процессе', 'warning');
         return;
     }
     
+    aiTurnLock = true;
     state.aiThinking = true;
     aiActionInProgress = true;
     
@@ -462,52 +463,59 @@ function aiTurn() {
         logAi('Фаза: Бросок кубика', 'phase');
         updateStatus('🤖 ИИ бросает кубик...');
         
-        // Используем таймаут для отслеживания
+        // Используем более простой подход
         aiTurnTimeout = setTimeout(() => {
-            logAi('Вызываем rollDice()', 'debug');
-            rollDice();
+            logAi('Бросаем кубик...', 'roll');
             
-            // После броска кубика, должен наступить action phase
-            // Проверяем это через небольшую задержку
+            // Вызываем функцию броска кубика
+            if (typeof rollDice === 'function') {
+                rollDice();
+            } else {
+                logAi('Ошибка: функция rollDice не найдена', 'error');
+                emergencyEndAiTurn();
+                return;
+            }
+            
+            // Проверяем результат через небольшую задержку
             setTimeout(() => {
                 logAi(`После броска: фаза=${state.phase}, очки=${state.points}`, 'debug');
                 
                 if (state.phase === 'action' && state.points > 0) {
                     logAi(`Бросок завершен! Выпало ${state.points} очков`, 'success');
+                    
+                    // Сбрасываем флаги и продолжаем ход
                     state.aiThinking = false;
                     aiActionInProgress = false;
-                    aiTurnTimeout = null;
+                    aiTurnLock = false;
                     
-                    // Продолжаем ход в action phase
-                    setTimeout(aiTurn, 500);
+                    // Небольшая пауза перед действиями
+                    setTimeout(() => {
+                        if (state.aiOpponent && state.currentPlayer === 1 && state.phase === 'action') {
+                            aiTurn();
+                        }
+                    }, 500);
                 } else {
                     logAi(`Проблема после броска: фаза=${state.phase}, очки=${state.points}`, 'error');
-                    state.aiThinking = false;
-                    aiActionInProgress = false;
-                    aiTurnTimeout = null;
-                    
-                    // Если что-то пошло не так, передаем ход
                     emergencyEndAiTurn();
                 }
-            }, 300);
+            }, 400); // Уменьшаем задержку проверки
             
-        }, 1000);
+        }, 800); // Задержка перед броском
         return;
     }
     
     if (state.phase !== 'action') {
         logAi(`Неправильная фаза для действий: ${state.phase}`, 'error');
-        state.aiThinking = false;
-        aiActionInProgress = false;
+        emergencyEndAiTurn();
         return;
     }
     
+    // Задержка в зависимости от сложности
     const delay = state.aiDifficulty === 'easy' ? 1200 : state.aiDifficulty === 'medium' ? 800 : 500;
     
     logAi(`Сложность: ${state.aiDifficulty}, Задержка: ${delay}мс`, 'info');
     updateStatus(`🤖 ИИ думает...`);
     
-    // Используем таймаут
     aiTurnTimeout = setTimeout(() => {
         try {
             aiMakeDecision();
@@ -523,17 +531,24 @@ function aiTurn() {
 // Аварийное завершение хода ИИ
 function emergencyEndAiTurn() {
     logAi('Аварийное завершение хода ИИ', 'error');
+    
+    // Сбрасываем все флаги
     state.aiThinking = false;
     aiActionInProgress = false;
+    aiTurnLock = false;
     
-    // Не сбрасываем очки, только передаем ход
-    state.currentPlayer = 0; // Передаем ход игроку
+    if (aiTurnTimeout) {
+        clearTimeout(aiTurnTimeout);
+        aiTurnTimeout = null;
+    }
+    
+    // Передаем ход игроку
+    state.currentPlayer = 0;
     state.phase = 'roll';
-    // Очки не сбрасываем - они уже должны быть правильно подсчитаны
     
     updateStatus('❌ Ошибка ИИ. Ваш ход!');
     renderBoard();
-    updateUI(); // Важно: обновляем UI!
+    updateUI();
     
     logAi('Ход передан игроку (аварийно)', 'phase');
 }
@@ -542,7 +557,7 @@ function emergencyEndAiTurn() {
 function aiMakeDecision() {
     logAi(`Принятие решения. Очки: ${state.points}`, 'action');
     
-    // Важная проверка: если points стал отрицательным, исправляем
+    // Проверка на отрицательные очки
     if (state.points < 0) {
         logAi(`ОШИБКА: отрицательные очки (${state.points}), исправляем на 0`, 'error');
         state.points = 0;
@@ -558,89 +573,79 @@ function aiMakeDecision() {
     const finish = state.finishPos[1];
     logAi(`Позиция ИИ: (${aiPlayer.row},${aiPlayer.col}), Финиш: (${finish.row},${finish.col})`, 'debug');
     
-    // Проверяем ВСЕ возможные действия с детальным логированием
+    // Проверяем ВСЕ возможные действия
     const actions = [];
     
     // 1. Движение
     if (state.points >= COST.move) {
         const canMove = canMoveAnywhere(aiPlayer);
         const validMoves = canMove ? getValidMoves(aiPlayer) : [];
-        const moveInfo = {
+        actions.push({
             type: 'move',
             cost: COST.move,
             possible: canMove && validMoves.length > 0,
             moves: validMoves.length,
             moveList: validMoves
-        };
-        actions.push(moveInfo);
-        logAi(`Движение: ${moveInfo.possible ? `✓ (${validMoves.length} вариантов)` : '✗'}`, 
-              moveInfo.possible ? 'success' : 'warning');
+        });
     }
     
     // 2. Размещение рядом
     if (state.points >= COST.placeAdjacent) {
         const adjacentEmpty = getAdjacentEmpty(aiPlayer);
-        const placeAdjInfo = {
+        actions.push({
             type: 'placeAdjacent',
             cost: COST.placeAdjacent,
             possible: adjacentEmpty.length > 0,
             cells: adjacentEmpty.length,
             cellList: adjacentEmpty
-        };
-        actions.push(placeAdjInfo);
-        logAi(`Размещение рядом: ${placeAdjInfo.possible ? `✓ (${adjacentEmpty.length} клеток)` : '✗'}`, 
-              placeAdjInfo.possible ? 'success' : 'warning');
+        });
     }
     
     // 3. Размещение где угодно
     if (state.points >= COST.placeAnywhere) {
         const allEmpty = getAllEmpty();
-        const placeAnyInfo = {
+        actions.push({
             type: 'placeAnywhere',
             cost: COST.placeAnywhere,
             possible: allEmpty.length > 0,
             cells: allEmpty.length,
             cellList: allEmpty
-        };
-        actions.push(placeAnyInfo);
-        logAi(`Размещение где угодно: ${placeAnyInfo.possible ? `✓ (${allEmpty.length} клеток)` : '✗'}`, 
-              placeAnyInfo.possible ? 'success' : 'warning');
+        });
     }
     
     // 4. Замена рядом
     if (state.points >= COST.replaceAdjacent) {
         const adjacentReplaceable = getAdjacentReplaceable();
-        const replaceAdjInfo = {
+        actions.push({
             type: 'replaceAdjacent',
             cost: COST.replaceAdjacent,
             possible: adjacentReplaceable.length > 0,
             cells: adjacentReplaceable.length,
             cellList: adjacentReplaceable
-        };
-        actions.push(replaceAdjInfo);
-        logAi(`Замена рядом: ${replaceAdjInfo.possible ? `✓ (${adjacentReplaceable.length} тайлов)` : '✗'}`, 
-              replaceAdjInfo.possible ? 'success' : 'warning');
+        });
     }
     
     // 5. Замена любого
     if (state.points >= COST.replace) {
         const replaceable = getReplaceable();
-        const replaceInfo = {
+        actions.push({
             type: 'replace',
             cost: COST.replace,
             possible: replaceable.length > 0,
             cells: replaceable.length,
             cellList: replaceable
-        };
-        actions.push(replaceInfo);
-        logAi(`Замена любого: ${replaceInfo.possible ? `✓ (${replaceable.length} тайлов)` : '✗'}`, 
-              replaceInfo.possible ? 'success' : 'warning');
+        });
     }
     
     // Фильтруем доступные действия
     const possibleActions = actions.filter(a => a.possible);
     logAi(`Доступных действий: ${possibleActions.length} из ${actions.length}`, 
           possibleActions.length > 0 ? 'success' : 'error');
+    
+    // Логируем каждое доступное действие
+    possibleActions.forEach(action => {
+        logAi(`  ${action.type}: ${action.cost} очков`, 'debug');
+    });
     
     if (possibleActions.length === 0) {
         logAi('❌ Нет доступных действий, завершаем ход', 'error');
@@ -678,37 +683,42 @@ function aiMakeDecision() {
 function completeAiTurn(message) {
     logAi('Завершение хода ИИ...', 'phase');
     
-    // Всегда сбрасываем флаги
+    // Сбрасываем все флаги
     state.aiThinking = false;
     aiActionInProgress = false;
+    aiTurnLock = false;
+    
+    if (aiTurnTimeout) {
+        clearTimeout(aiTurnTimeout);
+        aiTurnTimeout = null;
+    }
     
     // Обновляем статус
     if (message) {
         updateStatus(message);
     }
     
-    // ОБЯЗАТЕЛЬНО обновляем UI перед завершением
-    updateUI();
-    
     // Даем небольшую задержку перед передачей хода
     setTimeout(() => {
-        // Проверяем, что мы все еще в режиме ИИ и это все еще ход ИИ
+        // Проверяем, что мы все еще в режиме ИИ
         if (state.aiOpponent && state.currentPlayer === 1) {
             logAi('Передача хода игроку', 'phase');
-            aiEndTurn(); // Используем специальную функцию завершения хода ИИ
+            aiEndTurn();
         } else {
             logAi('Ход уже передан', 'debug');
         }
-    }, 1000);
+    }, 800);
 }
 
-// Специальная функция завершения хода для ИИ - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// Специальная функция завершения хода для ИИ
 function aiEndTurn() {
     logAi('Выполняем aiEndTurn()', 'phase');
     
     // Сбрасываем состояние ИИ
     state.aiThinking = false;
     aiActionInProgress = false;
+    aiTurnLock = false;
+    
     if (aiTurnTimeout) {
         clearTimeout(aiTurnTimeout);
         aiTurnTimeout = null;
@@ -721,10 +731,9 @@ function aiEndTurn() {
     clearHighlights();
     
     // Меняем игрока
-    state.currentPlayer = 0; // Передаем ход игроку
+    state.currentPlayer = 0;
     state.phase = 'roll';
-    // НЕ сбрасываем очки - они уже должны быть правильно подсчитаны!
-    // state.points = 0; // УБИРАЕМ ЭТУ СТРОКУ!
+    // НЕ сбрасываем очки игрока - это делает функция endTurn
     
     // Генерируем новый тайл
     state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
@@ -732,12 +741,15 @@ function aiEndTurn() {
     renderNextTile();
     
     // Сбрасываем кубик
-    document.getElementById('dice').textContent = '?';
+    const diceElement = document.getElementById('dice');
+    if (diceElement) {
+        diceElement.textContent = '?';
+    }
     
     // Обновляем UI
     updateUI();
     
-    logAi(`Ход ИИ завершен, передано игроку. Текущие очки: ${state.points}`, 'phase');
+    logAi(`Ход ИИ завершен, передано игроку`, 'phase');
     updateStatus(`Игрок, бросьте кубик!`);
 }
 
@@ -746,7 +758,6 @@ function aiEasyStrategy(possibleActions, aiPlayer, finish) {
     // Сортируем по стоимости (от дешевых к дорогим)
     possibleActions.sort((a, b) => a.cost - b.cost);
     
-    // Выбираем самое дешевое доступное действие
     const chosenAction = possibleActions[0];
     logAi(`Выбрано дешевое действие: ${chosenAction.type} (${chosenAction.cost} очков)`, 'action');
     
@@ -767,7 +778,7 @@ function aiMediumStrategy(possibleActions, aiPlayer, finish) {
     possibleActions.sort((a, b) => {
         const priorityDiff = actionPriority[b.type] - actionPriority[a.type];
         if (priorityDiff !== 0) return priorityDiff;
-        return a.cost - b.cost; // Если приоритет одинаковый, выбираем дешевле
+        return a.cost - b.cost;
     });
     
     const bestAction = possibleActions[0];
@@ -785,7 +796,7 @@ function aiHardStrategy(possibleActions, aiPlayer, finish) {
     for (const action of possibleActions) {
         let score = 0;
         
-        // Базовый приоритет как в средней стратегии
+        // Базовый приоритет
         const priority = {
             'move': 5,
             'placeAdjacent': 4,
@@ -831,14 +842,12 @@ function executeAiAction(actionType, aiPlayer, finish, actionInfo) {
     }
 }
 
-// Движение ИИ - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// Движение ИИ
 function aiPerformMove(aiPlayer, finish, actionInfo) {
     const validMoves = actionInfo.moveList || getValidMoves(aiPlayer);
     
     if (!validMoves || validMoves.length === 0) {
-        logAi('❌ Нет доступных ходов (неожиданная ошибка)', 'error');
-        state.aiThinking = false;
-        aiActionInProgress = false;
+        logAi('❌ Нет доступных ходов', 'error');
         return false;
     }
     
@@ -869,13 +878,11 @@ function aiPerformMove(aiPlayer, finish, actionInfo) {
     updateStatus(`🤖 ИИ переместился на (${aiPlayer.row},${aiPlayer.col})`);
     
     renderBoard();
-    updateUI(); // ВАЖНО: обновляем UI после изменения очков!
+    updateUI();
     
     // Проверяем победу
     if (checkWin(aiPlayer, state.board[aiPlayer.row][aiPlayer.col])) {
         logAi('🏆 ИИ ДОСТИГ ФИНИША! ПОБЕДА!', 'success');
-        state.aiThinking = false;
-        aiActionInProgress = false;
         setTimeout(() => {
             showWinModal();
         }, 1000);
@@ -886,11 +893,13 @@ function aiPerformMove(aiPlayer, finish, actionInfo) {
     if (state.points > 0) {
         logAi(`Осталось очков: ${state.points}, продолжаем ход`, 'info');
         
-        // Сбрасываем флаги перед следующим вызовом
-        state.aiThinking = false;
-        aiActionInProgress = false;
-        
-        setTimeout(aiTurn, 800);
+        // Даем время на отображение
+        setTimeout(() => {
+            state.aiThinking = false;
+            aiActionInProgress = false;
+            aiTurnLock = false;
+            aiTurn();
+        }, 1000);
     } else {
         completeAiTurn('🤖 ИИ завершает ход.');
     }
@@ -898,14 +907,12 @@ function aiPerformMove(aiPlayer, finish, actionInfo) {
     return true;
 }
 
-// Размещение тайла рядом - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// Размещение тайла рядом
 function aiPerformPlaceAdjacent(aiPlayer, finish, actionInfo) {
     const adjacentEmpty = actionInfo.cellList || getAdjacentEmpty(aiPlayer);
     
     if (!adjacentEmpty || adjacentEmpty.length === 0) {
-        logAi('❌ Нет пустых клеток рядом (неожиданная ошибка)', 'error');
-        state.aiThinking = false;
-        aiActionInProgress = false;
+        logAi('❌ Нет пустых клеток рядом', 'error');
         return false;
     }
     
@@ -946,17 +953,18 @@ function aiPerformPlaceAdjacent(aiPlayer, finish, actionInfo) {
     
     renderBoard();
     renderNextTile();
-    updateUI(); // ВАЖНО: обновляем UI после изменения очков!
+    updateUI();
     
     // Продолжаем ход, если есть очки
     if (state.points > 0) {
         logAi(`Осталось очков: ${state.points}, продолжаем ход`, 'info');
         
-        // Сбрасываем флаги перед следующим вызовом
-        state.aiThinking = false;
-        aiActionInProgress = false;
-        
-        setTimeout(aiTurn, 800);
+        setTimeout(() => {
+            state.aiThinking = false;
+            aiActionInProgress = false;
+            aiTurnLock = false;
+            aiTurn();
+        }, 1000);
     } else {
         completeAiTurn('🤖 ИИ завершает ход.');
     }
@@ -964,14 +972,12 @@ function aiPerformPlaceAdjacent(aiPlayer, finish, actionInfo) {
     return true;
 }
 
-// Размещение тайла где угодно - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// Размещение тайла где угодно
 function aiPerformPlaceAnywhere(aiPlayer, finish, actionInfo) {
     const allEmpty = actionInfo.cellList || getAllEmpty();
     
     if (!allEmpty || allEmpty.length === 0) {
-        logAi('❌ Нет пустых клеток (неожиданная ошибка)', 'error');
-        state.aiThinking = false;
-        aiActionInProgress = false;
+        logAi('❌ Нет пустых клеток', 'error');
         return false;
     }
     
@@ -1022,17 +1028,18 @@ function aiPerformPlaceAnywhere(aiPlayer, finish, actionInfo) {
     
     renderBoard();
     renderNextTile();
-    updateUI(); // ВАЖНО: обновляем UI после изменения очков!
+    updateUI();
     
     // Продолжаем ход, если есть очки
     if (state.points > 0) {
         logAi(`Осталось очков: ${state.points}, продолжаем ход`, 'info');
         
-        // Сбрасываем флаги перед следующим вызовом
-        state.aiThinking = false;
-        aiActionInProgress = false;
-        
-        setTimeout(aiTurn, 800);
+        setTimeout(() => {
+            state.aiThinking = false;
+            aiActionInProgress = false;
+            aiTurnLock = false;
+            aiTurn();
+        }, 1000);
     } else {
         completeAiTurn('🤖 ИИ завершает ход.');
     }
@@ -1040,14 +1047,12 @@ function aiPerformPlaceAnywhere(aiPlayer, finish, actionInfo) {
     return true;
 }
 
-// Замена соседнего тайла - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// Замена соседнего тайла
 function aiPerformReplaceAdjacent(aiPlayer, actionInfo) {
     const adjacentReplaceable = actionInfo.cellList || getAdjacentReplaceable();
     
     if (!adjacentReplaceable || adjacentReplaceable.length === 0) {
-        logAi('❌ Нет заменяемых тайлов рядом (неожиданная ошибка)', 'error');
-        state.aiThinking = false;
-        aiActionInProgress = false;
+        logAi('❌ Нет заменяемых тайлов рядом', 'error');
         return false;
     }
     
@@ -1084,17 +1089,18 @@ function aiPerformReplaceAdjacent(aiPlayer, actionInfo) {
     
     renderBoard();
     renderNextTile();
-    updateUI(); // ВАЖНО: обновляем UI после изменения очков!
+    updateUI();
     
     // Продолжаем ход, если есть очки
     if (state.points > 0) {
         logAi(`Осталось очков: ${state.points}, продолжаем ход`, 'info');
         
-        // Сбрасываем флаги перед следующим вызовом
-        state.aiThinking = false;
-        aiActionInProgress = false;
-        
-        setTimeout(aiTurn, 800);
+        setTimeout(() => {
+            state.aiThinking = false;
+            aiActionInProgress = false;
+            aiTurnLock = false;
+            aiTurn();
+        }, 1000);
     } else {
         completeAiTurn('🤖 ИИ завершает ход.');
     }
@@ -1102,14 +1108,12 @@ function aiPerformReplaceAdjacent(aiPlayer, actionInfo) {
     return true;
 }
 
-// Замена любого тайла - ИСПРАВЛЕННАЯ ВЕРСИЯ
+// Замена любого тайла
 function aiPerformReplace(aiPlayer, actionInfo) {
     const replaceable = actionInfo.cellList || getReplaceable();
     
     if (!replaceable || replaceable.length === 0) {
-        logAi('❌ Нет заменяемых тайлов (неожиданная ошибка)', 'error');
-        state.aiThinking = false;
-        aiActionInProgress = false;
+        logAi('❌ Нет заменяемых тайлов', 'error');
         return false;
     }
     
@@ -1146,17 +1150,18 @@ function aiPerformReplace(aiPlayer, actionInfo) {
     
     renderBoard();
     renderNextTile();
-    updateUI(); // ВАЖНО: обновляем UI после изменения очков!
+    updateUI();
     
     // Продолжаем ход, если есть очки
     if (state.points > 0) {
         logAi(`Осталось очков: ${state.points}, продолжаем ход`, 'info');
         
-        // Сбрасываем флаги перед следующим вызовом
-        state.aiThinking = false;
-        aiActionInProgress = false;
-        
-        setTimeout(aiTurn, 800);
+        setTimeout(() => {
+            state.aiThinking = false;
+            aiActionInProgress = false;
+            aiTurnLock = false;
+            aiTurn();
+        }, 1000);
     } else {
         completeAiTurn('🤖 ИИ завершает ход.');
     }
@@ -1243,19 +1248,24 @@ document.addEventListener('DOMContentLoaded', function() {
     state.aiStatus = '';
     aiTurnTimeout = null;
     aiActionInProgress = false;
+    aiTurnLock = false;
     
     // Добавляем обработчики для кнопок ИИ
-    document.getElementById('btn-ai-easy').addEventListener('click', () => {
+    const aiEasyBtn = document.getElementById('btn-ai-easy');
+    const aiMediumBtn = document.getElementById('btn-ai-medium');
+    const aiHardBtn = document.getElementById('btn-ai-hard');
+    
+    if (aiEasyBtn) aiEasyBtn.addEventListener('click', () => {
         setAiMode(true);
         setAiDifficulty('easy');
     });
 
-    document.getElementById('btn-ai-medium').addEventListener('click', () => {
+    if (aiMediumBtn) aiMediumBtn.addEventListener('click', () => {
         setAiMode(true);
         setAiDifficulty('medium');
     });
 
-    document.getElementById('btn-ai-hard').addEventListener('click', () => {
+    if (aiHardBtn) aiHardBtn.addEventListener('click', () => {
         setAiMode(true);
         setAiDifficulty('hard');
     });
@@ -1267,78 +1277,82 @@ document.addEventListener('DOMContentLoaded', function() {
             if (state.aiOpponent && state.currentPlayer === 1) {
                 forceEndAiTurn();
             } else {
-                endTurn();
+                if (typeof endTurn === 'function') {
+                    endTurn();
+                }
             }
         });
     }
     
     // Патчим функцию endTurn в основном файле для корректной работы
-    const originalEndTurn = window.endTurn;
-    window.endTurn = function() {
-        // Сбрасываем флаги ИИ при любом завершении хода
-        state.aiThinking = false;
-        aiActionInProgress = false;
-        if (aiTurnTimeout) {
-            clearTimeout(aiTurnTimeout);
-            aiTurnTimeout = null;
-        }
-        
-        // Если это был ход ИИ, логируем
-        if (state.aiOpponent && state.currentPlayer === 1) {
-            logAi('=== КОНЕЦ ХОДА ИИ (вызван endTurn) ===', 'phase');
+    if (typeof endTurn === 'function') {
+        const originalEndTurn = endTurn;
+        window.endTurn = function() {
+            // Сбрасываем флаги ИИ при любом завершении хода
+            state.aiThinking = false;
+            aiActionInProgress = false;
+            aiTurnLock = false;
             
-            // Сбрасываем состояние ИИ
-            state.selectedAction = null;
-            state.selectedCell = null;
-            state.lastTilePlacement = null;
-            clearHighlights();
-            
-            // Меняем игрока
-            state.currentPlayer = 0;
-            state.phase = 'roll';
-            // НЕ сбрасываем очки - они уже должны быть правильно подсчитаны!
-            // state.points = 0; // УБИРАЕМ ЭТУ СТРОКУ!
-            
-            // Генерируем новый тайл
-            state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
-            state.nextTileRotation = 0;
-            renderNextTile();
-            
-            // Сбрасываем кубик
-            document.getElementById('dice').textContent = '?';
-            
-            // Обновляем UI
-            updateUI();
-            
-            logAi(`Ход передан игроку (через endTurn). Очки: ${state.points}`, 'phase');
-            updateStatus(`Игрок, бросьте кубик!`);
-        } else {
-            // Если это ход игрока, вызываем оригинальную функцию
-            if (originalEndTurn) {
-                originalEndTurn();
+            if (aiTurnTimeout) {
+                clearTimeout(aiTurnTimeout);
+                aiTurnTimeout = null;
             }
-        }
-    };
+            
+            // Если это был ход ИИ, логируем
+            if (state.aiOpponent && state.currentPlayer === 1) {
+                logAi('=== КОНЕЦ ХОДА ИИ (вызван endTurn) ===', 'phase');
+                aiEndTurn();
+            } else {
+                // Если это ход игрока, вызываем оригинальную функцию
+                if (originalEndTurn) {
+                    originalEndTurn();
+                }
+            }
+        };
+    }
     
-    // Патчим rollDice для логирования броска ИИ
-    const originalRollDice = window.rollDice;
-    window.rollDice = function() {
-        logAi('Вызов rollDice()', 'debug');
-        
-        if (originalRollDice) {
-            originalRollDice();
-        }
-        
-        // Логируем результат броска для ИИ
+    // Патчим rollDice для автоматического продолжения хода ИИ
+    if (typeof rollDice === 'function') {
+        const originalRollDice = rollDice;
+        window.rollDice = function() {
+            logAi('Вызов rollDice()', 'debug');
+            
+            // Сохраняем, был ли это ход ИИ
+            const wasAiTurn = state.aiOpponent && state.currentPlayer === 1;
+            
+            if (originalRollDice) {
+                originalRollDice();
+            }
+            
+            // Если это был ход ИИ, продолжаем его
+            if (wasAiTurn) {
+                setTimeout(() => {
+                    logAi(`Бросок завершен. Выпало: ${state.points} очков, фаза: ${state.phase}`, 'phase');
+                    
+                    // Если мы перешли в action phase, продолжаем ход ИИ
+                    if (state.phase === 'action' && state.points > 0) {
+                        setTimeout(() => {
+                            if (state.aiOpponent && state.currentPlayer === 1 && state.phase === 'action') {
+                                logAi('Продолжаем ход ИИ после броска', 'debug');
+                                state.aiThinking = false;
+                                aiActionInProgress = false;
+                                aiTurnLock = false;
+                                aiTurn();
+                            }
+                        }, 300);
+                    }
+                }, 1100);
+            }
+        };
+    }
+    
+    // Глобальный обработчик ошибок для ИИ
+    window.addEventListener('error', function(e) {
         if (state.aiOpponent && state.currentPlayer === 1) {
-            setTimeout(() => {
-                logAi(`Бросок завершен. Выпало: ${state.points} очков, фаза: ${state.phase}`, 'phase');
-            }, 1100); // Чуть больше времени, чем анимация броска
+            logAi(`Глобальная ошибка: ${e.message}`, 'error');
+            emergencyEndAiTurn();
         }
-        
-        // После броска кубика обновляем UI
-        setTimeout(updateUI, 100);
-    };
+    });
     
     logAi('Модуль ИИ инициализирован', 'success');
 });
