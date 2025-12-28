@@ -370,6 +370,45 @@ if (typeof updateStatus === 'function') {
     };
 }
 
+// === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
+
+// Функция rotateEdges (если не определена в основном коде)
+if (typeof rotateEdges !== 'function') {
+    function rotateEdges(edges, rotation) {
+        return edges.map(edge => (edge + rotation) % 6);
+    }
+}
+
+// Функция getNeighbors (если не определена в основном коде)
+if (typeof getNeighbors !== 'function') {
+    function getNeighbors(row, col) {
+        const neighbors = [];
+        const directions = [
+            { dr: -1, dc: 0, edge: 0 },   // Вверх
+            { dr: -1, dc: 1, edge: 1 },   // Вверх-вправо
+            { dr: 0, dc: 1, edge: 2 },    // Вправо
+            { dr: 1, dc: 0, edge: 3 },    // Вниз
+            { dr: 1, dc: -1, edge: 4 },   // Вниз-влево
+            { dr: 0, dc: -1, edge: 5 }    // Влево
+        ];
+        
+        for (const dir of directions) {
+            const newRow = row + dir.dr;
+            const newCol = col + dir.dc;
+            
+            if (newRow >= 0 && newRow < BOARD_SIZE && newCol >= 0 && newCol < BOARD_SIZE) {
+                neighbors.push({
+                    row: newRow,
+                    col: newCol,
+                    edge: dir.edge
+                });
+            }
+        }
+        
+        return neighbors;
+    }
+}
+
 // Функция для проверки, соединяет ли тайл с соседними тайлами
 function tileConnectsToNeighbors(row, col, tileType, rotation) {
     const neighbors = getNeighbors(row, col);
@@ -426,6 +465,155 @@ function getBestRotationForTile(row, col, tileType) {
     
     return bestRotation;
 }
+
+// Функция для подсчета соединений тайла с соседями
+function countTileConnections(row, col, tileType, rotation) {
+    if (!tileType && tileType !== 0) return 0;
+    
+    const neighbors = getNeighbors(row, col);
+    const edges = rotateEdges(TILE_TYPES[tileType], rotation);
+    
+    let connections = 0;
+    for (const neighbor of neighbors) {
+        const nCell = state.board[neighbor.row][neighbor.col];
+        if (!nCell.isEmpty && nCell.tileType !== null && nCell.tileType !== undefined) {
+            const myEdge = neighbor.edge;
+            const theirEdge = (myEdge + 3) % 6;
+            const nEdges = rotateEdges(TILE_TYPES[nCell.tileType], nCell.rotation);
+            
+            if (edges.includes(myEdge) && nEdges.includes(theirEdge)) {
+                connections++;
+            }
+        }
+    }
+    
+    return connections;
+}
+
+// Функция для получения всех пустых клеток
+function getAllEmpty() {
+    const emptyCells = [];
+    for (let row = 0; row < BOARD_SIZE; row++) {
+        for (let col = 0; col < BOARD_SIZE; col++) {
+            if (state.board[row][col].isEmpty) {
+                emptyCells.push({row, col});
+            }
+        }
+    }
+    return emptyCells;
+}
+
+// Функция для получения соседних пустых клеток
+function getAdjacentEmpty(player) {
+    const adjacent = [];
+    const neighbors = getNeighbors(player.row, player.col);
+    
+    for (const neighbor of neighbors) {
+        const cell = state.board[neighbor.row][neighbor.col];
+        if (cell.isEmpty) {
+            adjacent.push({row: neighbor.row, col: neighbor.col});
+        }
+    }
+    
+    return adjacent;
+}
+
+// Функция для получения заменяемых тайлов рядом
+function getAdjacentReplaceable() {
+    const aiPlayer = state.players[1];
+    const adjacent = [];
+    const neighbors = getNeighbors(aiPlayer.row, aiPlayer.col);
+    
+    for (const neighbor of neighbors) {
+        const cell = state.board[neighbor.row][neighbor.col];
+        if (!cell.isEmpty && cell.tileType !== null) {
+            // Нельзя заменять тайлы с игроками
+            const hasPlayer = state.players.some(p => p.row === neighbor.row && p.col === neighbor.col) ||
+                             state.finishPos.some(f => f.row === neighbor.row && f.col === neighbor.col);
+            if (!hasPlayer) {
+                adjacent.push({row: neighbor.row, col: neighbor.col});
+            }
+        }
+    }
+    
+    return adjacent;
+}
+
+// Функция для получения всех заменяемых тайлов
+function getReplaceable() {
+    const replaceable = [];
+    
+    for (let row = 0; row < BOARD_SIZE; row++) {
+        for (let col = 0; col < BOARD_SIZE; col++) {
+            const cell = state.board[row][col];
+            if (!cell.isEmpty && cell.tileType !== null) {
+                // Нельзя заменять тайлы с игроками или финишами
+                const hasPlayer = state.players.some(p => p.row === row && p.col === col) ||
+                                 state.finishPos.some(f => f.row === row && f.col === col);
+                if (!hasPlayer) {
+                    replaceable.push({row, col});
+                }
+            }
+        }
+    }
+    
+    return replaceable;
+}
+
+// Функция для проверки, может ли игрок куда-то двигаться
+function canMoveAnywhere(player) {
+    return getValidMoves(player).length > 0;
+}
+
+// Функция для получения допустимых ходов
+function getValidMoves(player) {
+    const validMoves = [];
+    const visited = new Set();
+    const queue = [{row: player.row, col: player.col, path: []}];
+    
+    visited.add(`${player.row},${player.col}`);
+    
+    while (queue.length > 0) {
+        const current = queue.shift();
+        
+        // Если это не начальная позиция, добавляем как возможный ход
+        if (current.row !== player.row || current.col !== player.col) {
+            validMoves.push({row: current.row, col: current.col});
+        }
+        
+        // Получаем соседей
+        const neighbors = getNeighbors(current.row, current.col);
+        
+        for (const neighbor of neighbors) {
+            const key = `${neighbor.row},${neighbor.col}`;
+            
+            if (visited.has(key)) continue;
+            
+            // Проверяем, можно ли пройти
+            const currentCell = state.board[current.row][current.col];
+            const neighborCell = state.board[neighbor.row][neighbor.col];
+            
+            // Если текущая или соседняя клетка пустая - нельзя пройти
+            if (currentCell.isEmpty || neighborCell.isEmpty) continue;
+            
+            // Проверяем соединение
+            const currentEdges = rotateEdges(TILE_TYPES[currentCell.tileType], currentCell.rotation);
+            const neighborEdges = rotateEdges(TILE_TYPES[neighborCell.tileType], neighborCell.rotation);
+            
+            const myEdge = neighbor.edge;
+            const theirEdge = (myEdge + 3) % 6;
+            
+            if (currentEdges.includes(myEdge) && neighborEdges.includes(theirEdge)) {
+                visited.add(key);
+                queue.push({row: neighbor.row, col: neighbor.col, path: [...current.path, neighbor]});
+            }
+        }
+    }
+    
+    return validMoves;
+}
+
+// === ИНТЕЛЛЕКТУАЛЬНЫЕ ФУНКЦИИ ИИ ===
 
 // Функция для получения поворота тайла в направлении цели
 function getRotationTowardsTarget(row, col, tileType, targetRow, targetCol) {
@@ -718,6 +906,8 @@ function findBestTilePlacement(aiRow, aiCol, targetRow, targetCol, tileType) {
 
 // Функция для оценки направления тайла к цели
 function evaluateTileDirection(row, col, rotation, tileType, targetRow, targetCol) {
+    if (!tileType && tileType !== 0) return 0;
+    
     const edges = rotateEdges(TILE_TYPES[tileType], rotation);
     
     // Вычисляем направление к цели
@@ -747,6 +937,9 @@ function evaluateTileDirection(row, col, rotation, tileType, targetRow, targetCo
 
 // Функция для проверки, создаст ли тайл путь к цели
 function wouldCreatePathToTarget(row, col, tileType, rotation, fromRow, fromCol, targetRow, targetCol) {
+    // Проверяем валидность тайла
+    if (tileType === null || tileType === undefined) return false;
+    
     // Временно размещаем тайл
     const originalCell = { ...state.board[row][col] };
     state.board[row][col] = {
@@ -757,12 +950,19 @@ function wouldCreatePathToTarget(row, col, tileType, rotation, fromRow, fromCol,
     };
     
     // Проверяем, есть ли путь от текущей позиции ИИ
-    const path = findPathToTarget(fromRow, fromCol, targetRow, targetCol);
+    let hasPath = false;
+    try {
+        const path = findPathToTarget(fromRow, fromCol, targetRow, targetCol);
+        hasPath = path !== null && path.length > 0;
+    } catch (error) {
+        logAi(`Ошибка при проверке пути: ${error.message}`, 'error');
+        hasPath = false;
+    }
     
     // Восстанавливаем оригинальное состояние
     state.board[row][col] = originalCell;
     
-    return path !== null && path.length > 0;
+    return hasPath;
 }
 
 // Функция для нахождения лучшего хода (движения)
@@ -816,6 +1016,8 @@ function findBestMove(aiPlayer, targetRow, targetCol) {
     
     return bestMove;
 }
+
+// === ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ И УПРАВЛЕНИЕ ХОДОМ ИИ ===
 
 // Глобальные переменные для управления ходом ИИ
 let aiTurnTimeout = null;
@@ -991,7 +1193,7 @@ function emergencyEndAiTurn() {
     logAi('Ход передан игроку (аварийно)', 'phase');
 }
 
-// Основная функция принятия решений ИИ - УЛУЧШЕННАЯ ВЕРСИЯ
+// Основная функция принятия решений ИИ
 function aiMakeDecision() {
     logAi(`Принятие решения. Очки: ${state.points}`, 'action');
     
@@ -1612,81 +1814,7 @@ function executeAiAction(actionType, aiPlayer, finish, actionInfo) {
     }
 }
 
-// Базовые реализации (оставлены как были)
-
-// ... (остальные базовые функции остаются без изменений)
-
-// Функция для корректного завершения хода ИИ
-function completeAiTurn(message) {
-    logAi('Завершение хода ИИ...', 'phase');
-    
-    // Включаем кнопку завершения хода
-    enableEndTurnButton();
-    
-    // Сбрасываем все флаги
-    state.aiThinking = false;
-    aiActionInProgress = false;
-    aiTurnLock = false;
-    aiIsMakingMove = false;
-    
-    if (aiTurnTimeout) {
-        clearTimeout(aiTurnTimeout);
-        aiTurnTimeout = null;
-    }
-    
-    // Обновляем статус
-    if (message) {
-        updateStatus(message);
-    }
-    
-    // Даем небольшую задержку перед передачей хода
-    setTimeout(() => {
-        if (state.aiOpponent && state.currentPlayer === 1) {
-            logAi('Передача хода игроку', 'phase');
-            aiEndTurn();
-        }
-    }, 800);
-}
-
-// Функция завершения хода для ИИ
-function aiEndTurn() {
-    logAi('Выполняем aiEndTurn()', 'phase');
-    
-    enableEndTurnButton();
-    
-    state.aiThinking = false;
-    aiActionInProgress = false;
-    aiTurnLock = false;
-    aiIsMakingMove = false;
-    
-    if (aiTurnTimeout) {
-        clearTimeout(aiTurnTimeout);
-        aiTurnTimeout = null;
-    }
-    
-    state.selectedAction = null;
-    state.selectedCell = null;
-    state.lastTilePlacement = null;
-    if (typeof clearHighlights === 'function') clearHighlights();
-    
-    state.currentPlayer = 0;
-    state.phase = 'roll';
-    
-    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
-    state.nextTileRotation = 0;
-    if (typeof renderNextTile === 'function') renderNextTile();
-    
-    const diceElement = document.getElementById('dice');
-    if (diceElement) diceElement.textContent = '?';
-    
-    if (typeof updateUI === 'function') updateUI();
-    
-    logAi(`Ход ИИ завершен, передано игроку`, 'phase');
-    updateStatus(`Игрок, бросьте кубик!`);
-}
-
-// Базовые функции выполнения действий (оставлены для совместимости)
-
+// Базовые функции выполнения действий
 function aiPerformBasicMove(aiPlayer, finish, actionInfo) {
     const validMoves = actionInfo.moveList || getValidMoves(aiPlayer);
     if (!validMoves || validMoves.length === 0) return false;
@@ -1937,6 +2065,75 @@ function aiPerformBasicReplace(aiPlayer, actionInfo) {
     return true;
 }
 
+// Функция для корректного завершения хода ИИ
+function completeAiTurn(message) {
+    logAi('Завершение хода ИИ...', 'phase');
+    
+    // Включаем кнопку завершения хода
+    enableEndTurnButton();
+    
+    // Сбрасываем все флаги
+    state.aiThinking = false;
+    aiActionInProgress = false;
+    aiTurnLock = false;
+    aiIsMakingMove = false;
+    
+    if (aiTurnTimeout) {
+        clearTimeout(aiTurnTimeout);
+        aiTurnTimeout = null;
+    }
+    
+    // Обновляем статус
+    if (message) {
+        updateStatus(message);
+    }
+    
+    // Даем небольшую задержку перед передачей хода
+    setTimeout(() => {
+        if (state.aiOpponent && state.currentPlayer === 1) {
+            logAi('Передача хода игроку', 'phase');
+            aiEndTurn();
+        }
+    }, 800);
+}
+
+// Функция завершения хода для ИИ
+function aiEndTurn() {
+    logAi('Выполняем aiEndTurn()', 'phase');
+    
+    enableEndTurnButton();
+    
+    state.aiThinking = false;
+    aiActionInProgress = false;
+    aiTurnLock = false;
+    aiIsMakingMove = false;
+    
+    if (aiTurnTimeout) {
+        clearTimeout(aiTurnTimeout);
+        aiTurnTimeout = null;
+    }
+    
+    state.selectedAction = null;
+    state.selectedCell = null;
+    state.lastTilePlacement = null;
+    if (typeof clearHighlights === 'function') clearHighlights();
+    
+    state.currentPlayer = 0;
+    state.phase = 'roll';
+    
+    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+    state.nextTileRotation = 0;
+    if (typeof renderNextTile === 'function') renderNextTile();
+    
+    const diceElement = document.getElementById('dice');
+    if (diceElement) diceElement.textContent = '?';
+    
+    if (typeof updateUI === 'function') updateUI();
+    
+    logAi(`Ход ИИ завершен, передано игроку`, 'phase');
+    updateStatus(`Игрок, бросьте кубик!`);
+}
+
 // Функция для установки режима игры с ИИ
 function setAiMode(enable) {
     state.aiOpponent = enable;
@@ -1994,6 +2191,7 @@ function forceEndAiTurn() {
 
 // Инициализация ИИ
 document.addEventListener('DOMContentLoaded', function() {
+    // Инициализируем состояние ИИ
     state.aiThinking = false;
     state.aiStatus = '';
     aiTurnTimeout = null;
@@ -2001,6 +2199,7 @@ document.addEventListener('DOMContentLoaded', function() {
     aiTurnLock = false;
     aiIsMakingMove = false;
     
+    // Добавляем обработчики для кнопок ИИ
     const aiEasyBtn = document.getElementById('btn-ai-easy');
     const aiMediumBtn = document.getElementById('btn-ai-medium');
     const aiHardBtn = document.getElementById('btn-ai-hard');
@@ -2020,26 +2219,31 @@ document.addEventListener('DOMContentLoaded', function() {
         setAiDifficulty('hard');
     });
     
+    // Модифицируем кнопку завершения хода для работы с ИИ
     const endTurnBtn = document.getElementById('btn-end');
     if (endTurnBtn) {
         endTurnBtn.addEventListener('click', function() {
             if (state.aiOpponent && state.currentPlayer === 1) {
                 forceEndAiTurn();
             } else {
-                if (typeof endTurn === 'function') endTurn();
+                if (typeof endTurn === 'function') {
+                    endTurn();
+                }
             }
         });
     }
     
-    // Патчинг функций
+    // Патчим функцию endTurn в основном файле для корректной работы
     if (typeof endTurn === 'function') {
         const originalEndTurn = endTurn;
         window.endTurn = function() {
+            // Сбрасываем флаги ИИ при любом завершении хода
             state.aiThinking = false;
             aiActionInProgress = false;
             aiTurnLock = false;
             aiIsMakingMove = false;
             
+            // Включаем кнопку завершения хода
             enableEndTurnButton();
             
             if (aiTurnTimeout) {
@@ -2047,72 +2251,99 @@ document.addEventListener('DOMContentLoaded', function() {
                 aiTurnTimeout = null;
             }
             
+            // Если это был ход ИИ, логируем
             if (state.aiOpponent && state.currentPlayer === 1) {
                 logAi('=== КОНЕЦ ХОДА ИИ (вызван endTurn) ===', 'phase');
                 aiEndTurn();
             } else {
-                if (originalEndTurn) originalEndTurn();
+                // Если это ход игрока, вызываем оригинальную функцию
+                if (originalEndTurn) {
+                    originalEndTurn();
+                }
             }
         };
     }
     
+    // Патчим rollDice для автоматического продолжения хода ИИ
     if (typeof rollDice === 'function') {
         const originalRollDice = rollDice;
         window.rollDice = function() {
             logAi('Вызов rollDice()', 'roll');
             
+            // Сохраняем, был ли это ход ИИ
             const wasAiTurn = state.aiOpponent && state.currentPlayer === 1;
             
-            if (originalRollDice) originalRollDice();
+            if (originalRollDice) {
+                originalRollDice();
+            }
             
+            // Если это был ход ИИ, планируем продолжение через время анимации
             if (wasAiTurn) {
-                logAi('Бросок кубика ИИ завершен', 'debug');
+                logAi('Бросок кубика ИИ завершен, ждем перехода в action phase', 'debug');
+                // Дальнейшее продолжение будет в aiTurn после таймаута
             }
         };
     }
     
+    // Патчим функцию смены игрока
     if (typeof switchPlayer === 'function') {
         const originalSwitchPlayer = switchPlayer;
         window.switchPlayer = function() {
             const oldPlayer = state.currentPlayer;
             
-            if (originalSwitchPlayer) originalSwitchPlayer();
+            if (originalSwitchPlayer) {
+                originalSwitchPlayer();
+            }
             
+            // Если теперь ход ИИ, запускаем его ход
             if (state.aiOpponent && state.currentPlayer === 1 && oldPlayer === 0) {
-                logAi('Автоматический запуск хода ИИ', 'phase');
-                setTimeout(() => startAiTurn(), 1000);
+                logAi('Автоматический запуск хода ИИ после смены игрока', 'phase');
+                setTimeout(() => {
+                    startAiTurn();
+                }, 1000);
             }
         };
     }
     
+    // Патчим restartGame чтобы ИИ начинал ход если нужно
     if (typeof restartGame === 'function') {
         const originalRestartGame = restartGame;
         window.restartGame = function() {
-            if (originalRestartGame) originalRestartGame();
+            if (originalRestartGame) {
+                originalRestartGame();
+            }
             
+            // Если игра с ИИ и сейчас его ход, запускаем
             if (state.aiOpponent && state.currentPlayer === 1) {
                 setTimeout(() => {
-                    logAi('Запуск хода ИИ после перезапуска', 'phase');
+                    logAi('Запуск хода ИИ после перезапуска игры', 'phase');
                     startAiTurn();
                 }, 1500);
             }
         };
     }
     
+    // Также перехватываем клик по кубику для ИИ
     const diceElement = document.getElementById('dice');
     if (diceElement) {
         const originalOnClick = diceElement.onclick;
         diceElement.onclick = function() {
+            // Если сейчас ход ИИ, блокируем ручной бросок
             if (state.aiOpponent && state.currentPlayer === 1 && aiIsMakingMove) {
-                logAi('Блокировка броска кубика во время хода ИИ', 'warning');
+                logAi('Игрок пытается бросить кубик во время хода ИИ - блокируем', 'warning');
                 return;
             }
             
-            if (originalOnClick) originalOnClick.call(this);
-            else if (typeof rollDice === 'function') rollDice();
+            // Иначе вызываем оригинальный обработчик
+            if (originalOnClick) {
+                originalOnClick.call(this);
+            } else if (typeof rollDice === 'function') {
+                rollDice();
+            }
         };
     }
     
+    // Глобальный обработчик ошибок для ИИ
     window.addEventListener('error', function(e) {
         if (state.aiOpponent && state.currentPlayer === 1) {
             logAi(`Глобальная ошибка: ${e.message}`, 'error');
