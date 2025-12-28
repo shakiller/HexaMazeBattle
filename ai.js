@@ -430,6 +430,31 @@ let aiTurnTimeout = null;
 let aiActionInProgress = false;
 let aiTurnLock = false; // Блокировка для предотвращения дублирующих вызовов
 
+// Функция для запуска хода ИИ - вызывается извне когда нужно начать ход ИИ
+function startAiTurn() {
+    if (!state.aiOpponent || state.currentPlayer !== 1) {
+        logAi('Невозможно начать ход ИИ: не режим ИИ или не ход ИИ', 'warning');
+        return;
+    }
+    
+    logAi('=== ЗАПУСК ХОДА ИИ ===', 'action');
+    
+    // Сбрасываем флаги перед началом
+    state.aiThinking = false;
+    aiActionInProgress = false;
+    aiTurnLock = false;
+    
+    if (aiTurnTimeout) {
+        clearTimeout(aiTurnTimeout);
+        aiTurnTimeout = null;
+    }
+    
+    // Начинаем ход с небольшой задержкой
+    setTimeout(() => {
+        aiTurn();
+    }, 500);
+}
+
 // Функция для хода ИИ - ИСПРАВЛЕННАЯ ВЕРСИЯ
 function aiTurn() {
     // Защита от дублирующих вызовов
@@ -476,30 +501,7 @@ function aiTurn() {
                 return;
             }
             
-            // Проверяем результат через небольшую задержку
-            setTimeout(() => {
-                logAi(`После броска: фаза=${state.phase}, очки=${state.points}`, 'debug');
-                
-                if (state.phase === 'action' && state.points > 0) {
-                    logAi(`Бросок завершен! Выпало ${state.points} очков`, 'success');
-                    
-                    // Сбрасываем флаги и продолжаем ход
-                    state.aiThinking = false;
-                    aiActionInProgress = false;
-                    aiTurnLock = false;
-                    
-                    // Небольшая пауза перед действиями
-                    setTimeout(() => {
-                        if (state.aiOpponent && state.currentPlayer === 1 && state.phase === 'action') {
-                            aiTurn();
-                        }
-                    }, 500);
-                } else {
-                    logAi(`Проблема после броска: фаза=${state.phase}, очки=${state.points}`, 'error');
-                    emergencyEndAiTurn();
-                }
-            }, 400); // Уменьшаем задержку проверки
-            
+            // Не нужно дополнительной проверки - rollDice сама вызовет продолжение через патч
         }, 800); // Задержка перед броском
         return;
     }
@@ -733,12 +735,14 @@ function aiEndTurn() {
     // Меняем игрока
     state.currentPlayer = 0;
     state.phase = 'roll';
-    // НЕ сбрасываем очки игрока - это делает функция endTurn
+    // Очки не сбрасываем - они сбрасываются при броске кубика
     
     // Генерируем новый тайл
     state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
     state.nextTileRotation = 0;
-    renderNextTile();
+    if (typeof renderNextTile === 'function') {
+        renderNextTile();
+    }
     
     // Сбрасываем кубик
     const diceElement = document.getElementById('dice');
@@ -747,7 +751,9 @@ function aiEndTurn() {
     }
     
     // Обновляем UI
-    updateUI();
+    if (typeof updateUI === 'function') {
+        updateUI();
+    }
     
     logAi(`Ход ИИ завершен, передано игроку`, 'phase');
     updateStatus(`Игрок, бросьте кубик!`);
@@ -877,14 +883,20 @@ function aiPerformMove(aiPlayer, finish, actionInfo) {
     logAi(`Перемещение: (${oldRow},${oldCol}) → (${aiPlayer.row},${aiPlayer.col}), очки: ${oldPoints} → ${state.points}`, 'success');
     updateStatus(`🤖 ИИ переместился на (${aiPlayer.row},${aiPlayer.col})`);
     
-    renderBoard();
-    updateUI();
+    if (typeof renderBoard === 'function') {
+        renderBoard();
+    }
+    if (typeof updateUI === 'function') {
+        updateUI();
+    }
     
     // Проверяем победу
-    if (checkWin(aiPlayer, state.board[aiPlayer.row][aiPlayer.col])) {
+    if (typeof checkWin === 'function' && checkWin(aiPlayer, state.board[aiPlayer.row][aiPlayer.col])) {
         logAi('🏆 ИИ ДОСТИГ ФИНИША! ПОБЕДА!', 'success');
         setTimeout(() => {
-            showWinModal();
+            if (typeof showWinModal === 'function') {
+                showWinModal();
+            }
         }, 1000);
         return true;
     }
@@ -951,9 +963,15 @@ function aiPerformPlaceAdjacent(aiPlayer, finish, actionInfo) {
     logAi(`Тайл размещен: тип ${oldTileType}, очки: ${oldPoints} → ${state.points}`, 'success');
     updateStatus(`🤖 ИИ разместил тайл в (${targetCell.row},${targetCell.col})`);
     
-    renderBoard();
-    renderNextTile();
-    updateUI();
+    if (typeof renderBoard === 'function') {
+        renderBoard();
+    }
+    if (typeof renderNextTile === 'function') {
+        renderNextTile();
+    }
+    if (typeof updateUI === 'function') {
+        updateUI();
+    }
     
     // Продолжаем ход, если есть очки
     if (state.points > 0) {
@@ -1026,9 +1044,15 @@ function aiPerformPlaceAnywhere(aiPlayer, finish, actionInfo) {
     logAi(`Тайл размещен: тип ${oldTileType}, очки: ${oldPoints} → ${state.points}`, 'success');
     updateStatus(`🤖 ИИ разместил тайл в (${bestCell.row},${bestCell.col})`);
     
-    renderBoard();
-    renderNextTile();
-    updateUI();
+    if (typeof renderBoard === 'function') {
+        renderBoard();
+    }
+    if (typeof renderNextTile === 'function') {
+        renderNextTile();
+    }
+    if (typeof updateUI === 'function') {
+        updateUI();
+    }
     
     // Продолжаем ход, если есть очки
     if (state.points > 0) {
@@ -1087,9 +1111,15 @@ function aiPerformReplaceAdjacent(aiPlayer, actionInfo) {
     logAi(`Тайл заменен: новый тип ${oldTileType}, очки: ${oldPoints} → ${state.points}`, 'success');
     updateStatus(`🤖 ИИ заменил тайл в (${targetCell.row},${targetCell.col})`);
     
-    renderBoard();
-    renderNextTile();
-    updateUI();
+    if (typeof renderBoard === 'function') {
+        renderBoard();
+    }
+    if (typeof renderNextTile === 'function') {
+        renderNextTile();
+    }
+    if (typeof updateUI === 'function') {
+        updateUI();
+    }
     
     // Продолжаем ход, если есть очки
     if (state.points > 0) {
@@ -1148,9 +1178,15 @@ function aiPerformReplace(aiPlayer, actionInfo) {
     logAi(`Тайл заменен: новый тип ${oldTileType}, очки: ${oldPoints} → ${state.points}`, 'success');
     updateStatus(`🤖 ИИ заменил тайл в (${targetCell.row},${targetCell.col})`);
     
-    renderBoard();
-    renderNextTile();
-    updateUI();
+    if (typeof renderBoard === 'function') {
+        renderBoard();
+    }
+    if (typeof renderNextTile === 'function') {
+        renderNextTile();
+    }
+    if (typeof updateUI === 'function') {
+        updateUI();
+    }
     
     // Продолжаем ход, если есть очки
     if (state.points > 0) {
@@ -1337,11 +1373,54 @@ document.addEventListener('DOMContentLoaded', function() {
                                 state.aiThinking = false;
                                 aiActionInProgress = false;
                                 aiTurnLock = false;
-                                aiTurn();
+                                
+                                // Используем startAiTurn вместо прямого вызова aiTurn
+                                startAiTurn();
                             }
-                        }, 300);
+                        }, 500);
+                    } else {
+                        // Если что-то пошло не так, логируем
+                        logAi(`Проблема после броска: фаза=${state.phase}, очки=${state.points}`, 'warning');
                     }
                 }, 1100);
+            }
+        };
+    }
+    
+    // Патчим функцию смены игрока, чтобы ИИ начинал ход автоматически
+    if (typeof switchPlayer === 'function') {
+        const originalSwitchPlayer = switchPlayer;
+        window.switchPlayer = function() {
+            const oldPlayer = state.currentPlayer;
+            
+            if (originalSwitchPlayer) {
+                originalSwitchPlayer();
+            }
+            
+            // Если теперь ход ИИ, запускаем его ход
+            if (state.aiOpponent && state.currentPlayer === 1 && oldPlayer === 0) {
+                logAi('Автоматический запуск хода ИИ после смены игрока', 'phase');
+                setTimeout(() => {
+                    startAiTurn();
+                }, 500);
+            }
+        };
+    }
+    
+    // Также патчим restartGame чтобы ИИ начинал ход если нужно
+    if (typeof restartGame === 'function') {
+        const originalRestartGame = restartGame;
+        window.restartGame = function() {
+            if (originalRestartGame) {
+                originalRestartGame();
+            }
+            
+            // Если игра с ИИ и сейчас его ход, запускаем
+            if (state.aiOpponent && state.currentPlayer === 1) {
+                setTimeout(() => {
+                    logAi('Запуск хода ИИ после перезапуска игры', 'phase');
+                    startAiTurn();
+                }, 1000);
             }
         };
     }
