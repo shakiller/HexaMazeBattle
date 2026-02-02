@@ -15,15 +15,16 @@
     <div class="game-mode-panel">
         <button class="mode-btn active" data-mode="simple" onclick="setGameMode('simple')">До финиша</button>
         <button class="mode-btn" data-mode="flag" onclick="setGameMode('flag')">С флагом ↩</button>
-        <button class="mode-btn active" data-players="1" onclick="setPlayers(1)">1 игрок</button>
-        <button class="mode-btn" data-players="2" onclick="setPlayers(2)">2 игрока</button>
+        <button class="mode-btn active" data-mode-type="single" onclick="setGameModeType('single')">1 игрок</button>
+        <button class="mode-btn" data-mode-type="bot" onclick="setGameModeType('bot')">🤖 Бот</button>
+        <button class="mode-btn" data-mode-type="online" onclick="setGameModeType('online')">🌐 Онлайн</button>
         <button class="mode-btn" onclick="restartGame()">🔄 Заново</button>
         <button class="mode-btn" onclick="toggleSettings()">⚙️ Настройки</button>
     </div>
 
-    <!-- Добавляем панель выбора ИИ -->
-    <div class="ai-mode-panel" style="margin: 10px 0; text-align: center;">
-        <span style="margin-right: 10px; color: #fbbf24; font-weight: bold;">Игра против ИИ:</span>
+    <!-- Панель выбора сложности ИИ (скрыта по умолчанию) -->
+    <div class="ai-mode-panel" id="ai-mode-panel" style="display: none; margin: 10px 0; text-align: center;">
+        <span style="margin-right: 10px; color: #fbbf24; font-weight: bold;">Сложность ИИ:</span>
         <button class="mode-btn" id="btn-ai-easy" data-difficulty="easy">🤖 Легкий</button>
         <button class="mode-btn" id="btn-ai-medium" data-difficulty="medium">🤖 Средний</button>
         <button class="mode-btn" id="btn-ai-hard" data-difficulty="hard">🤖 Сложный</button>
@@ -176,6 +177,12 @@
     </div>
 </div>
 <script src="script.js"></script>
+<script>
+// Убеждаемся, что state определен перед загрузкой ai.js
+if (typeof state === 'undefined') {
+    console.error('Ошибка: state не определен перед загрузкой ai.js');
+}
+</script>
 <script src="ai.js"></script>
 </body>
 </html>

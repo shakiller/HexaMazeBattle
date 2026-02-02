@@ -30,7 +30,8 @@ const state = {
     finishPos: [{ row: 8, col: 8 }, { row: 8, col: 0 }],
     lastTilePlacement: null,
     aiOpponent: false,
-    aiDifficulty: 'medium'
+    aiDifficulty: 'medium',
+    gameModeType: 'single' // 'single', 'bot', 'online'
 };
 
 // Цвета игроков
@@ -333,7 +334,14 @@ function initBoard() {
     
     if (state.aiOpponent && state.currentPlayer === 1) {
         updateStatus('Ход ИИ...');
-        setTimeout(aiTurn, 1000);
+        // Проверяем, что функция aiTurn доступна
+        if (typeof aiTurn === 'function') {
+            setTimeout(aiTurn, 1000);
+        } else if (typeof startAiTurn === 'function') {
+            setTimeout(startAiTurn, 1000);
+        } else {
+            updateStatus('Ошибка: функции ИИ не загружены');
+        }
     } else {
         updateStatus('Бросьте кубик, чтобы получить очки!');
     }
@@ -443,7 +451,14 @@ function rollDice() {
             
             if (state.aiOpponent && state.currentPlayer === 1) {
                 updateStatus(`ИИ выбросил ${value}! ИИ думает...`);
-                setTimeout(aiTurn, 500);
+                // Проверяем, что функция aiTurn доступна
+                if (typeof aiTurn === 'function') {
+                    setTimeout(aiTurn, 500);
+                } else if (typeof startAiTurn === 'function') {
+                    setTimeout(startAiTurn, 500);
+                } else {
+                    updateStatus('Ошибка: функции ИИ не загружены');
+                }
             } else {
                 updateStatus(`Выпало ${value}! Кликните на пустую клетку чтобы разместить тайл, или выберите действие.`);
             }
@@ -1074,7 +1089,15 @@ function endTurn() {
     
     if (state.aiOpponent && state.currentPlayer === 1) {
         updateStatus('Ход ИИ...');
-        setTimeout(aiTurn, 1000);
+        // Проверяем, что функция aiTurn доступна
+        if (typeof aiTurn === 'function') {
+            setTimeout(aiTurn, 1000);
+        } else if (typeof startAiTurn === 'function') {
+            // Используем startAiTurn если aiTurn недоступна
+            setTimeout(startAiTurn, 1000);
+        } else {
+            updateStatus('Ошибка: функции ИИ не загружены');
+        }
     } else {
         updateStatus(`Игрок ${state.currentPlayer + 1}, бросьте кубик!`);
     }
@@ -1100,6 +1123,68 @@ function setPlayers(num) {
     document.querySelectorAll('.mode-btn[data-players]').forEach(btn => {
         btn.classList.toggle('active', parseInt(btn.dataset.players) === num);
     });
+    restartGame();
+}
+
+// Новая функция для выбора типа режима игры
+function setGameModeType(modeType) {
+    state.gameModeType = modeType;
+    
+    // Обновляем активные кнопки
+    document.querySelectorAll('.mode-btn[data-mode-type]').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.modeType === modeType);
+    });
+    
+    // Показываем/скрываем панель выбора сложности ИИ
+    const aiPanel = document.getElementById('ai-mode-panel');
+    if (aiPanel) {
+        if (modeType === 'bot') {
+            aiPanel.style.display = 'block';
+        } else {
+            aiPanel.style.display = 'none';
+        }
+    }
+    
+    // Настраиваем режим игры
+    if (modeType === 'single') {
+        state.numPlayers = 1;
+        state.aiOpponent = false;
+        updateStatus('Режим для одного игрока');
+    } else if (modeType === 'bot') {
+        state.numPlayers = 2;
+        state.aiOpponent = true;
+        // Показываем панель выбора сложности
+        const aiPanel = document.getElementById('ai-mode-panel');
+        if (aiPanel) {
+            aiPanel.style.display = 'block';
+        }
+        // Обновляем активную кнопку сложности
+        const currentDifficulty = state.aiDifficulty || 'medium';
+        const difficultyButtons = document.querySelectorAll('.mode-btn[data-difficulty]');
+        if (difficultyButtons.length > 0) {
+            difficultyButtons.forEach(btn => {
+                if (btn.dataset.difficulty === currentDifficulty) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        }
+        // Устанавливаем сложность через функцию, если она доступна (без перезапуска, т.к. restartGame вызовется ниже)
+        if (typeof setAiDifficulty === 'function') {
+            setAiDifficulty(currentDifficulty, true); // skipRestart = true
+        } else {
+            // Если функция недоступна, просто обновляем состояние
+            state.aiDifficulty = currentDifficulty;
+        }
+        updateStatus('🤖 Режим против ИИ включен!');
+    } else if (modeType === 'online') {
+        state.numPlayers = 2;
+        state.aiOpponent = false;
+        // TODO: здесь будет логика для онлайн режима
+        updateStatus('🌐 Онлайн режим (в разработке)');
+    }
+    
     restartGame();
 }
 

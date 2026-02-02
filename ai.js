@@ -1,37 +1,26 @@
 // === КОНСТАНТЫ И ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ===
+// Проверяем, что мы в браузере
+if (typeof window === 'undefined') {
+    throw new Error('ai.js должен загружаться в браузере');
+}
+
+// TILE_TYPES и COST уже определены в script.js, не переопределяем их здесь
 // Если BOARD_SIZE не определена, устанавливаем значение по умолчанию
 if (typeof BOARD_SIZE === 'undefined') {
     var BOARD_SIZE = 9; // Размер игрового поля по умолчанию
 }
 
-// Если TILE_TYPES не определена, создаем базовые типы тайлов
-if (typeof TILE_TYPES === 'undefined') {
-    var TILE_TYPES = [
-        [0, 3],     // Вертикальный путь
-        [1, 4],     // Горизонтальный путь
-        [0, 1, 2],  // T-образный
-        [0, 1, 3],  // Угол
-        [0, 2, 4],  // Разветвление
-        [0, 1, 2, 3, 4, 5] // Перекресток
-    ];
-}
-
-// Если COST не определен, устанавливаем значения по умолчанию
-if (typeof COST === 'undefined') {
-    var COST = {
-        move: 1,
-        placeAdjacent: 2,
-        placeAnywhere: 3,
-        replaceAdjacent: 3,
-        replace: 4
-    };
-}
-
 // Инициализация состояния ИИ, если не существует
-if (!state.aiOpponent) {
-    state.aiOpponent = false;
-    state.aiDifficulty = 'medium';
-    state.aiThinking = false;
+if (typeof state !== 'undefined') {
+    if (!state.aiOpponent) {
+        state.aiOpponent = false;
+        state.aiDifficulty = 'medium';
+        state.aiThinking = false;
+    }
+    // Убеждаемся, что gameModeType существует
+    if (typeof state.gameModeType === 'undefined') {
+        state.gameModeType = 'single';
+    }
 }
 
 // Глобальные переменные для управления ходом ИИ
@@ -1533,16 +1522,24 @@ function startBotSelfPlay() {
 }
 
 // Функция для установки режима игры с ИИ
-function setAiMode(enable) {
+function setAiMode(enable, skipRestart) {
     state.aiOpponent = enable;
     if (enable) {
         state.numPlayers = 2;
-        // Обновляем UI кнопок режима
-        const modeButtons = document.querySelectorAll('.mode-btn[data-players]');
+        state.gameModeType = 'bot';
+        
+        // Обновляем UI кнопок режима (новая структура с data-mode-type)
+        const modeButtons = document.querySelectorAll('.mode-btn[data-mode-type]');
         if (modeButtons.length > 0) {
             modeButtons.forEach(btn => {
-                btn.classList.toggle('active', parseInt(btn.dataset.players) === 2);
+                btn.classList.toggle('active', btn.dataset.modeType === 'bot');
             });
+        }
+        
+        // Показываем панель выбора сложности
+        const aiPanel = document.getElementById('ai-mode-panel');
+        if (aiPanel) {
+            aiPanel.style.display = 'block';
         }
         
         updateStatus('🤖 Режим против ИИ включен!');
@@ -1561,13 +1558,18 @@ function setAiMode(enable) {
             }, 1500);
         }
     } else {
+        // Скрываем панель выбора сложности
+        const aiPanel = document.getElementById('ai-mode-panel');
+        if (aiPanel) {
+            aiPanel.style.display = 'none';
+        }
         updateStatus('Режим против ИИ выключен');
     }
     
-    // Перезапускаем игру, если функция существует
-    if (typeof restartGame === 'function') {
+    // Перезапускаем игру, если функция существует и не пропущен флаг
+    if (!skipRestart && typeof restartGame === 'function') {
         restartGame();
-    } else {
+    } else if (!skipRestart) {
         // Если restartGame не существует, просто обновляем UI
         if (typeof renderBoard === 'function') renderBoard();
         if (typeof updateUI === 'function') updateUI();
@@ -1575,16 +1577,23 @@ function setAiMode(enable) {
 }
 
 // Функция для установки сложности ИИ
-function setAiDifficulty(difficulty) {
+function setAiDifficulty(difficulty, skipRestart) {
+    if (typeof state === 'undefined') {
+        console.error('setAiDifficulty: state не определен');
+        return;
+    }
+    
     state.aiDifficulty = difficulty;
     
-    // Обновляем UI кнопок сложности
+    // Обновляем UI кнопок сложности - делаем это сразу и синхронно
     const difficultyButtons = document.querySelectorAll('.mode-btn[data-difficulty]');
-    if (difficultyButtons.length > 0) {
-        difficultyButtons.forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.difficulty === difficulty);
-        });
-    }
+    difficultyButtons.forEach(btn => {
+        if (btn && btn.dataset.difficulty === difficulty) {
+            btn.classList.add('active');
+        } else if (btn) {
+            btn.classList.remove('active');
+        }
+    });
     
     const difficultyNames = {
         'easy': 'Легкая',
@@ -1593,8 +1602,20 @@ function setAiDifficulty(difficulty) {
     };
     
     if (state.aiOpponent) {
-        updateStatus(`🤖 Сложность ИИ: ${difficultyNames[difficulty]}`);
-        logAi(`Сложность изменена на: ${difficultyNames[difficulty]}`, 'info');
+        if (typeof updateStatus === 'function') {
+            updateStatus(`🤖 Сложность ИИ: ${difficultyNames[difficulty]}`);
+        }
+        if (typeof logAi === 'function') {
+            logAi(`Сложность изменена на: ${difficultyNames[difficulty]}`, 'info');
+        }
+    }
+    
+    // Перезапускаем игру, если режим бота активен и не пропущен флаг
+    if (!skipRestart && state.aiOpponent && typeof restartGame === 'function') {
+        // Небольшая задержка, чтобы UI успел обновиться
+        setTimeout(() => {
+            restartGame();
+        }, 50);
     }
 }
 
@@ -1606,11 +1627,53 @@ function forceEndAiTurn() {
     }
 }
 
+// Делаем функции доступными глобально сразу после определения
+// Функции сами проверят state при вызове
+try {
+    if (typeof window !== 'undefined') {
+        window.aiTurn = aiTurn;
+        window.startAiTurn = startAiTurn;
+        window.setAiMode = setAiMode;
+        window.setAiDifficulty = setAiDifficulty;
+    }
+} catch (e) {
+    console.error('ai.js: Ошибка при присвоении функций в window:', e);
+}
+
 // Инициализация ИИ при загрузке страницы
+function initAiOnReady() {
+    // Проверяем, что state доступен
+    if (typeof state === 'undefined') {
+        // Пытаемся еще раз через небольшую задержку
+        setTimeout(initAiOnReady, 50);
+        return;
+    }
+    
+    // Убеждаемся, что функции доступны глобально
+    if (typeof window !== 'undefined') {
+        window.aiTurn = aiTurn;
+        window.startAiTurn = startAiTurn;
+        window.setAiMode = setAiMode;
+        window.setAiDifficulty = setAiDifficulty;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
+    initAiOnReady();
+    
+    // Проверяем, что state доступен
+    if (typeof state === 'undefined') {
+        console.error('ai.js: state не определен! Убедитесь, что script.js загружается перед ai.js');
+        return;
+    }
+    
     // Инициализируем состояние ИИ
-    state.aiThinking = false;
-    state.aiStatus = '';
+    if (typeof state.aiThinking === 'undefined') {
+        state.aiThinking = false;
+    }
+    if (typeof state.aiStatus === 'undefined') {
+        state.aiStatus = '';
+    }
     aiTurnTimeout = null;
     aiActionInProgress = false;
     aiTurnLock = false;
@@ -1624,19 +1687,93 @@ document.addEventListener('DOMContentLoaded', function() {
     const aiMediumBtn = document.getElementById('btn-ai-medium');
     const aiHardBtn = document.getElementById('btn-ai-hard');
     
-    if (aiEasyBtn) aiEasyBtn.addEventListener('click', () => {
-        setAiMode(true);
-        setAiDifficulty('easy');
+    if (aiEasyBtn) aiEasyBtn.addEventListener('click', function() {
+        // Сразу обновляем визуально кнопку
+        const difficultyButtons = document.querySelectorAll('.mode-btn[data-difficulty]');
+        difficultyButtons.forEach(btn => {
+            if (btn.dataset.difficulty === 'easy') {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+        
+        // Устанавливаем режим бота, если еще не установлен
+        if (!state.aiOpponent || state.gameModeType !== 'bot') {
+            if (typeof setGameModeType === 'function') {
+                setGameModeType('bot');
+                // После установки режима устанавливаем сложность
+                setTimeout(() => {
+                    setAiDifficulty('easy', false);
+                }, 100);
+            } else {
+                if (typeof setAiMode === 'function') {
+                    setAiMode(true);
+                }
+                setAiDifficulty('easy', false);
+            }
+        } else {
+            // Режим уже установлен, просто меняем сложность
+            setAiDifficulty('easy', false);
+        }
     });
 
-    if (aiMediumBtn) aiMediumBtn.addEventListener('click', () => {
-        setAiMode(true);
-        setAiDifficulty('medium');
+    if (aiMediumBtn) aiMediumBtn.addEventListener('click', function() {
+        // Сразу обновляем визуально кнопку
+        const difficultyButtons = document.querySelectorAll('.mode-btn[data-difficulty]');
+        difficultyButtons.forEach(btn => {
+            if (btn.dataset.difficulty === 'medium') {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+        
+        // Устанавливаем режим бота, если еще не установлен
+        if (!state.aiOpponent || state.gameModeType !== 'bot') {
+            if (typeof setGameModeType === 'function') {
+                setGameModeType('bot');
+                setTimeout(() => {
+                    setAiDifficulty('medium', false);
+                }, 100);
+            } else {
+                if (typeof setAiMode === 'function') {
+                    setAiMode(true);
+                }
+                setAiDifficulty('medium', false);
+            }
+        } else {
+            setAiDifficulty('medium', false);
+        }
     });
 
-    if (aiHardBtn) aiHardBtn.addEventListener('click', () => {
-        setAiMode(true);
-        setAiDifficulty('hard');
+    if (aiHardBtn) aiHardBtn.addEventListener('click', function() {
+        // Сразу обновляем визуально кнопку
+        const difficultyButtons = document.querySelectorAll('.mode-btn[data-difficulty]');
+        difficultyButtons.forEach(btn => {
+            if (btn.dataset.difficulty === 'hard') {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+        
+        // Устанавливаем режим бота, если еще не установлен
+        if (!state.aiOpponent || state.gameModeType !== 'bot') {
+            if (typeof setGameModeType === 'function') {
+                setGameModeType('bot');
+                setTimeout(() => {
+                    setAiDifficulty('hard', false);
+                }, 100);
+            } else {
+                if (typeof setAiMode === 'function') {
+                    setAiMode(true);
+                }
+                setAiDifficulty('hard', false);
+            }
+        } else {
+            setAiDifficulty('hard', false);
+        }
     });
     
     // Модифицируем кнопку завершения хода для работы с ИИ
