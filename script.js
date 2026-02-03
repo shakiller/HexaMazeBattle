@@ -7,7 +7,14 @@ const PEERJS_CONFIG = {
     host: '0.peerjs.com', // Замените на свой сервер, например: 'your-peerjs-server.com'
     port: 443,
     path: '/',
-    secure: true
+    secure: true,
+    // Конфигурация для WebRTC (помогает с NAT/firewall)
+    config: {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+    }
 };
 
 const COST = {
@@ -1609,10 +1616,16 @@ function connectToRoom(roomId) {
                     updatePlayerStatuses();
                 });
                 
-                // Добавляем обработчик состояния соединения
-                conn.on('iceStateChange', (state) => {
-                    console.log('ICE состояние соединения:', state);
-                });
+                // Добавляем обработчик состояния ICE (WebRTC)
+                if (conn.peerConnection) {
+                    conn.peerConnection.oniceconnectionstatechange = () => {
+                        console.log('ICE состояние соединения:', conn.peerConnection.iceConnectionState);
+                        if (conn.peerConnection.iceConnectionState === 'failed') {
+                            console.error('ICE соединение провалилось');
+                            updateStatus('Не удалось установить соединение. Возможны проблемы с NAT/firewall.');
+                        }
+                    };
+                }
                 
                 handlePeerConnection(conn);
             } else {
@@ -1642,7 +1655,15 @@ function handlePeerConnection(conn) {
     console.log('Обработка соединения, isHost:', state.isHost);
     console.log('Соединение уже открыто?', conn.open);
     
+    let connectionTimeoutId = null;
+    
     function handleConnectionOpen() {
+        // Очищаем таймаут если соединение открылось
+        if (connectionTimeoutId) {
+            clearTimeout(connectionTimeoutId);
+            connectionTimeoutId = null;
+        }
+        
         console.log('Соединение установлено! isHost:', state.isHost);
         state.isConnected = true;
         
@@ -1686,6 +1707,26 @@ function handlePeerConnection(conn) {
         handleConnectionOpen();
     } else {
         console.log('Ожидание открытия соединения...');
+        
+        // Добавляем таймаут для соединения
+        connectionTimeoutId = setTimeout(() => {
+            if (!state.isConnected && state.peerConnection === conn) {
+                console.error('Таймаут установления соединения');
+                console.error('Состояние соединения:', {
+                    open: conn.open,
+                    peerConnection: conn.peerConnection ? 'есть' : 'нет',
+                    dataChannel: conn.dataChannel ? 'есть' : 'нет'
+                });
+                updateStatus('Таймаут подключения. Возможны проблемы с сетью или NAT. Попробуйте снова или используйте VPN.');
+                if (state.isHost) {
+                    state.player2Confirmed = false;
+                } else {
+                    state.player1Confirmed = false;
+                    state.player2Confirmed = false;
+                }
+                updatePlayerStatuses();
+            }
+        }, 15000); // 15 секунд таймаут
     }
     
     conn.on('open', () => {
