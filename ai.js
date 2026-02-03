@@ -28,6 +28,7 @@ let aiTurnTimeout = null;
 let aiActionInProgress = false;
 let aiTurnLock = false;
 let aiIsMakingMove = false;
+let aiLastPositions = []; // История последних позиций ИИ для предотвращения бесконечных циклов (храним последние 3)
 
 // Создаем контейнер для логов ИИ
 function createAiLogPanel() {
@@ -467,30 +468,90 @@ function tileConnectsToNeighbors(row, col, tileType, rotation) {
 }
 
 // Функция для получения оптимального поворота тайла
-function getBestRotationForTile(row, col, tileType) {
+function getBestRotationForTile(row, col, tileType, aiPlayer, finish) {
     let bestRotation = 0;
-    let maxConnections = 0;
+    let bestScore = -1;
     
+    // Получаем соседей
+    const neighbors = getNeighbors(row, col);
+    
+    // Проверяем все возможные повороты
     for (let rotation = 0; rotation < 6; rotation++) {
-        let connections = 0;
-        const neighbors = getNeighbors(row, col);
         const edges = rotateEdges(TILE_TYPES[tileType], rotation);
+        let score = 0;
+        let connectsToPlayer = false;
+        let connectsToFinish = false;
         
+        // Проверяем соединения с соседними тайлами
         for (const neighbor of neighbors) {
             const nCell = state.board[neighbor.row][neighbor.col];
-            if (!nCell.isEmpty && nCell.tileType !== null) {
-                const myEdge = neighbor.edge;
-                const theirEdge = (myEdge + 3) % 6;
-                const nEdges = rotateEdges(TILE_TYPES[nCell.tileType], nCell.rotation);
+            if (!nCell || nCell.isEmpty || nCell.tileType === null) continue;
+            
+            const myEdge = neighbor.edge;
+            const theirEdge = (myEdge + 3) % 6;
+            const nEdges = rotateEdges(TILE_TYPES[nCell.tileType], nCell.rotation);
+            
+            if (edges.includes(myEdge) && nEdges.includes(theirEdge)) {
+                score += 10; // Соединение с существующим тайлом
                 
-                if (edges.includes(myEdge) && nEdges.includes(theirEdge)) {
-                    connections++;
+                // Проверяем, соединение ли это с позицией игрока
+                if (aiPlayer && neighbor.row === aiPlayer.row && neighbor.col === aiPlayer.col) {
+                    connectsToPlayer = true;
+                    score += 50; // Очень важно соединение с игроком
+                }
+                
+                // Проверяем, соединение ли это с финишем
+                if (finish && neighbor.row === finish.row && neighbor.col === finish.col) {
+                    connectsToFinish = true;
+                    score += 30; // Важно соединение с финишем
                 }
             }
         }
         
-        if (connections > maxConnections) {
-            maxConnections = connections;
+        // Если размещаем рядом с игроком, обязательно нужно соединение
+        if (aiPlayer) {
+            const distToPlayer = Math.abs(row - aiPlayer.row) + Math.abs(col - aiPlayer.col);
+            if (distToPlayer === 1) {
+                // Это соседняя клетка к игроку
+                const playerNeighbors = getNeighbors(aiPlayer.row, aiPlayer.col);
+                const playerNeighbor = playerNeighbors.find(n => n.row === row && n.col === col);
+                if (playerNeighbor) {
+                    const myEdge = playerNeighbor.edge;
+                    const theirEdge = (myEdge + 3) % 6;
+                    const playerCell = state.board[aiPlayer.row][aiPlayer.col];
+                    if (playerCell && !playerCell.isEmpty && playerCell.tileType !== null) {
+                        const playerEdges = rotateEdges(TILE_TYPES[playerCell.tileType], playerCell.rotation);
+                        if (edges.includes(theirEdge) && playerEdges.includes(myEdge)) {
+                            score += 100; // Критически важно соединение с игроком
+                            connectsToPlayer = true;
+                        } else {
+                            score -= 50; // Штраф, если нет соединения с игроком
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Бонус за направление к цели
+        if (finish) {
+            const dx = finish.col - col;
+            const dy = finish.row - row;
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+            
+            // Определяем желаемое направление
+            if (absDx > absDy) {
+                if (dx > 0 && (edges.includes(1) || edges.includes(2))) score += 5;
+                if (dx < 0 && (edges.includes(4) || edges.includes(5))) score += 5;
+            } else {
+                if (dy > 0 && (edges.includes(2) || edges.includes(3))) score += 5;
+                if (dy < 0 && (edges.includes(5) || edges.includes(0))) score += 5;
+            }
+        }
+        
+        // Предпочитаем повороты, которые создают больше соединений
+        if (score > bestScore) {
+            bestScore = score;
             bestRotation = rotation;
         }
     }
@@ -768,7 +829,8 @@ function findBestTilePlacement(aiRow, aiCol, targetRow, targetCol, tileType) {
     }
     
     // Простой поворот в направлении цели
-    const bestRotation = getBestRotationForTile(bestCell.row, bestCell.col, tileType);
+    // Используем упрощённую версию без параметров игрока для обратной совместимости
+    const bestRotation = getBestRotationForTile(bestCell.row, bestCell.col, tileType, null, null);
     
     const bestPlacement = {
         row: bestCell.row,
@@ -916,37 +978,39 @@ function aiTurn() {
         logAi('Фаза: Бросок кубика', 'phase');
         updateStatus('🤖 ИИ бросает кубик...');
         
-        // Бросаем кубик с небольшой задержкой
+        // Бросаем кубик с небольшой задержкой, чтобы было видно
         aiTurnTimeout = setTimeout(() => {
             logAi('Вызываем rollDice()', 'roll');
             
             if (typeof rollDice === 'function') {
                 try {
+                    // Вызываем rollDice - он сам покажет анимацию
                     rollDice();
                     
-                    // Даем время на анимацию броска и обновление состояния
+                    // Даем больше времени на анимацию броска (анимация длится ~600ms)
+                    // и обновление состояния
                     setTimeout(() => {
                         logAi(`После броска: фаза=${state.phase}, очки=${state.points}`, 'debug');
                         
                         if (state.phase === 'action' && state.points > 0) {
-                            logAi(`Успешно! Выпало ${state.points} очков, продолжаем...`, 'success');
+                            logAi(`✅ Успешно! Выпало ${state.points} очков, продолжаем...`, 'success');
                             
                             // Сбрасываем флаги и продолжаем в action phase
                             state.aiThinking = false;
                             aiActionInProgress = false;
                             aiTurnLock = false;
                             
-                            // Небольшая пауза перед действиями
+                            // Небольшая пауза перед действиями, чтобы игрок увидел результат
                             setTimeout(() => {
                                 if (state.aiOpponent && state.currentPlayer === 1 && state.phase === 'action') {
                                     aiMakeDecision();
                                 }
-                            }, 500);
+                            }, 800);
                         } else {
-                            logAi(`Проблема: фаза=${state.phase}, очки=${state.points}`, 'error');
+                            logAi(`❌ Проблема: фаза=${state.phase}, очки=${state.points}`, 'error');
                             emergencyEndAiTurn();
                         }
-                    }, 1000);
+                    }, 1200); // Увеличено время ожидания для завершения анимации
                 } catch (error) {
                     logAi(`Ошибка при броске кубика: ${error.message}`, 'error');
                     emergencyEndAiTurn();
@@ -1022,80 +1086,554 @@ function aiMakeDecision() {
     const finish = state.finishPos[1];
     logAi(`Позиция ИИ: (${aiPlayer.row},${aiPlayer.col}), Финиш: (${finish.row},${finish.col})`, 'debug');
     
-    // ПРОСТАЯ РАБОЧАЯ СТРАТЕГИЯ
+    // УЛУЧШЕННАЯ СТРАТЕГИЯ
     const actions = [];
     
-    // 1. Движение
+    // Вычисляем текущее расстояние до финиша
+    const currentDist = Math.abs(aiPlayer.row - finish.row) + Math.abs(aiPlayer.col - finish.col);
+    
+    // 1. Движение (но только если оно действительно приближает к цели)
+    // ВАЖНО: проверяем движение ПЕРЕД размещением, чтобы использовать все очки
+    // Также проверяем, можно ли пройти по только что размещенному тайлу
+    // КРИТИЧЕСКИ ВАЖНО: бот должен двигаться только на соседние клетки, не перепрыгивая
     if (state.points >= COST.move) {
-        const validMoves = getValidMoves(aiPlayer);
+        // Получаем только соседние доступные клетки, а не все достижимые
+        const neighbors = getNeighbors(aiPlayer.row, aiPlayer.col);
+        const validMoves = [];
+        
+        for (const neighbor of neighbors) {
+            const nCell = state.board[neighbor.row][neighbor.col];
+            if (nCell.isEmpty) continue;
+            
+            const playerCell = state.board[aiPlayer.row][aiPlayer.col];
+            if (!playerCell || playerCell.isEmpty || playerCell.tileType === null) continue;
+            
+            const myEdge = neighbor.edge;
+            const theirEdge = (myEdge + 3) % 6;
+            
+            const playerEdges = rotateEdges(TILE_TYPES[playerCell.tileType], playerCell.rotation);
+            const neighborEdges = rotateEdges(TILE_TYPES[nCell.tileType], nCell.rotation);
+            
+            if (playerEdges.includes(myEdge) && neighborEdges.includes(theirEdge)) {
+                validMoves.push({row: neighbor.row, col: neighbor.col});
+            }
+        }
+        
         if (validMoves.length > 0) {
+            logAi(`Доступных ходов (только соседние): ${validMoves.length}`, 'debug');
+            
+            // Если недавно разместили тайл, проверяем, можно ли по нему пройти
+            // Это должно быть приоритетным действием
+            if (state.lastTilePlacement && state.lastTilePlacement.row !== undefined) {
+                const canMoveToLastTile = validMoves.some(m => 
+                    m.row === state.lastTilePlacement.row && m.col === state.lastTilePlacement.col
+                );
+                if (canMoveToLastTile) {
+                    logAi(`✅ Можно пройти по только что размещенному тайлу в (${state.lastTilePlacement.row},${state.lastTilePlacement.col})`, 'success');
+                    // Это должно быть приоритетным - добавляем с высоким приоритетом
+                    const moveToLastTile = validMoves.find(m => 
+                        m.row === state.lastTilePlacement.row && m.col === state.lastTilePlacement.col
+                    );
+                    if (moveToLastTile) {
+                        const dist = Math.abs(moveToLastTile.row - finish.row) + Math.abs(moveToLastTile.col - finish.col);
+                        actions.push({
+                            type: 'move',
+                            cost: COST.move,
+                            possible: true,
+                            target: moveToLastTile,
+                            priority: 110, // Очень высокий приоритет для движения по размещенному тайлу
+                            improvesPosition: dist < currentDist,
+                            isBacktracking: false,
+                            willBeStuck: false
+                        });
+                        // Пропускаем обычную логику движения, так как уже добавили приоритетное
+                        // Но все равно проверяем другие ходы на случай, если есть лучшие варианты
+                    }
+                }
+            }
             // Выбираем ход ближе к финишу
-            let bestMove = validMoves[0];
-            let bestDist = Math.abs(bestMove.row - finish.row) + Math.abs(bestMove.col - finish.col);
+            let bestMove = null;
+            let bestDist = currentDist;
+            let improvesPosition = false;
             
             for (const move of validMoves) {
                 const dist = Math.abs(move.row - finish.row) + Math.abs(move.col - finish.col);
                 if (dist < bestDist) {
                     bestDist = dist;
                     bestMove = move;
+                    improvesPosition = true;
                 }
             }
             
+            // Если не нашли улучшающий ход, проверяем все доступные ходы
+            // и выбираем тот, который не является возвратом назад
+            if (!bestMove) {
+                // Ищем ход, который не ведет на предыдущие позиции
+                for (const move of validMoves) {
+                    let isBacktrack = false;
+                    for (const lastPos of aiLastPositions) {
+                        if (move.row === lastPos.row && move.col === lastPos.col) {
+                            isBacktrack = true;
+                            break;
+                        }
+                    }
+                    if (!isBacktrack) {
+                        bestMove = move;
+                        bestDist = Math.abs(bestMove.row - finish.row) + Math.abs(bestMove.col - finish.col);
+                        break;
+                    }
+                }
+                // Если все ходы - возвраты назад, берем первый
+                if (!bestMove) {
+                    bestMove = validMoves[0];
+                    bestDist = Math.abs(bestMove.row - finish.row) + Math.abs(bestMove.col - finish.col);
+                }
+            }
+            
+            // Проверяем, не застрянет ли бот после этого хода
+            // (симуляция: проверяем, будут ли доступные ходы после перемещения)
+            let willBeStuck = false;
+            let isBacktracking = false;
+            
+            if (bestMove) {
+                // Проверяем, не возвращается ли бот на предыдущие позиции
+                for (const lastPos of aiLastPositions) {
+                    if (bestMove.row === lastPos.row && bestMove.col === lastPos.col) {
+                        isBacktracking = true;
+                        logAi(`⚠️ Ход ведет обратно на предыдущую позицию (${bestMove.row},${bestMove.col})`, 'warning');
+                        break;
+                    }
+                }
+                
+                // Временно проверяем доступные ходы из новой позиции
+                const tempPlayer = {row: bestMove.row, col: bestMove.col};
+                const futureMoves = getValidMoves(tempPlayer);
+                // Если после хода будет только один вариант (вернуться назад), это плохо
+                if (futureMoves.length <= 1) {
+                    willBeStuck = true;
+                }
+                
+                // Дополнительная проверка: если все будущие ходы ведут на предыдущие позиции
+                let allMovesAreBacktracking = true;
+                if (futureMoves.length > 0) {
+                    for (const futureMove of futureMoves) {
+                        let isPreviousPos = false;
+                        for (const lastPos of aiLastPositions) {
+                            if (futureMove.row === lastPos.row && futureMove.col === lastPos.col) {
+                                isPreviousPos = true;
+                                break;
+                            }
+                        }
+                        if (!isPreviousPos) {
+                            allMovesAreBacktracking = false;
+                            break;
+                        }
+                    }
+                    if (allMovesAreBacktracking && futureMoves.length > 0) {
+                        willBeStuck = true;
+                    }
+                }
+            }
+            
+            // Приоритет зависит от того, приближает ли ход к цели
+            let movePriority = 50; // Базовый приоритет
+            if (improvesPosition && !isBacktracking) {
+                movePriority = 100; // Высокий приоритет, если приближает и не возвращается
+            } else if (isBacktracking) {
+                movePriority = 5; // Очень низкий приоритет для возврата назад
+                // Если это возврат назад, лучше не добавлять это действие вообще
+                // если есть другие варианты (размещение тайлов)
+            } else if (willBeStuck) {
+                movePriority = 15; // Низкий приоритет, если застрянет
+            } else {
+                movePriority = 40; // Средний приоритет для нейтральных ходов
+            }
+            
+            // Добавляем движение только если оно не является возвратом назад
+            // или если нет других вариантов (проверим это позже)
             actions.push({
                 type: 'move',
                 cost: COST.move,
                 possible: true,
                 target: bestMove,
-                priority: 100
+                priority: movePriority,
+                improvesPosition: improvesPosition,
+                isBacktracking: isBacktracking,
+                willBeStuck: willBeStuck
             });
         }
     }
     
-    // 2. Размещение рядом (если можем)
+    // 2. Размещение рядом (если можем) - ВЫСОКИЙ ПРИОРИТЕТ для строительства прохода
+    // ВАЖНО: размещаем только тайлы, которые создают проход к игроку!
     if (state.points >= COST.placeAdjacent) {
         const adjacentEmpty = getAdjacentEmpty(aiPlayer);
         if (adjacentEmpty.length > 0) {
-            // Выбираем первую доступную клетку
-            const targetCell = adjacentEmpty[0];
-            const bestRotation = getBestRotationForTile(targetCell.row, targetCell.col, state.nextTileType);
+            // Выбираем лучшую клетку и поворот
+            let bestCell = null;
+            let bestRotation = 0;
+            let bestScore = -1;
             
-            actions.push({
-                type: 'placeAdjacent',
-                cost: COST.placeAdjacent,
-                possible: true,
-                target: targetCell,
-                rotation: bestRotation,
-                priority: 90
-            });
-        }
-    }
-    
-    // 3. Размещение где угодно (если не можем рядом)
-    if (state.points >= COST.placeAnywhere && actions.filter(a => a.type === 'placeAdjacent').length === 0) {
-        const allEmpty = getAllEmpty();
-        if (allEmpty.length > 0) {
-            // Выбираем клетку ближе к финишу
-            let bestCell = allEmpty[0];
-            let bestDist = Math.abs(bestCell.row - finish.row) + Math.abs(bestCell.col - finish.col);
-            
-            for (const cell of allEmpty) {
-                const dist = Math.abs(cell.row - finish.row) + Math.abs(cell.col - finish.col);
-                if (dist < bestDist) {
-                    bestDist = dist;
-                    bestCell = cell;
+            for (const targetCell of adjacentEmpty) {
+                // Проверяем все возможные повороты для этого тайла
+                for (let rotation = 0; rotation < 6; rotation++) {
+                    const edges = rotateEdges(TILE_TYPES[state.nextTileType], rotation);
+                    
+                    // КРИТИЧЕСКИ ВАЖНО: проверяем, создаёт ли это соединение с игроком
+                    const neighbors = getNeighbors(aiPlayer.row, aiPlayer.col);
+                    const playerNeighbor = neighbors.find(n => n.row === targetCell.row && n.col === targetCell.col);
+                    let score = 0;
+                    let createsPath = false;
+                    
+                    if (playerNeighbor) {
+                        const myEdge = playerNeighbor.edge;
+                        const theirEdge = (myEdge + 3) % 6;
+                        const playerCell = state.board[aiPlayer.row][aiPlayer.col];
+                        if (playerCell && !playerCell.isEmpty && playerCell.tileType !== null) {
+                            const playerEdges = rotateEdges(TILE_TYPES[playerCell.tileType], playerCell.rotation);
+                            if (edges.includes(theirEdge) && playerEdges.includes(myEdge)) {
+                                createsPath = true;
+                                score = 200; // Очень высокий приоритет для создания прохода
+                                
+                                // КРИТИЧЕСКИ ВАЖНО: бонус за размещение в направлении к финишу
+                                const cellDist = Math.abs(targetCell.row - finish.row) + Math.abs(targetCell.col - finish.col);
+                                if (cellDist < currentDist) {
+                                    score += 100; // Очень большой бонус за приближение к цели
+                                } else if (cellDist === currentDist) {
+                                    score += 20; // Небольшой бонус за нейтральное размещение
+                                } else {
+                                    score -= 50; // Штраф за размещение в сторону от цели
+                                }
+                                
+                                // Дополнительный бонус: проверяем, ведет ли размещение в правильном направлении
+                                const dx = finish.col - targetCell.col;
+                                const dy = finish.row - targetCell.row;
+                                const absDx = Math.abs(dx);
+                                const absDy = Math.abs(dy);
+                                
+                                // Проверяем, есть ли у тайла выход в направлении финиша
+                                let hasExitTowardsFinish = false;
+                                if (absDx > absDy) {
+                                    if (dx > 0 && (edges.includes(1) || edges.includes(2))) hasExitTowardsFinish = true;
+                                    if (dx < 0 && (edges.includes(4) || edges.includes(5))) hasExitTowardsFinish = true;
+                                } else {
+                                    if (dy > 0 && (edges.includes(2) || edges.includes(3))) hasExitTowardsFinish = true;
+                                    if (dy < 0 && (edges.includes(5) || edges.includes(0))) hasExitTowardsFinish = true;
+                                }
+                                
+                                if (hasExitTowardsFinish) {
+                                    score += 50; // Бонус за тайл, который ведет к финишу
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Если не создает проход, пропускаем этот вариант
+                    if (!createsPath) {
+                        continue;
+                    }
+                    
+                    // Дополнительные бонусы за соединения с другими тайлами
+                    const tileNeighbors = getNeighbors(targetCell.row, targetCell.col);
+                    for (const neighbor of tileNeighbors) {
+                        if (neighbor.row === aiPlayer.row && neighbor.col === aiPlayer.col) continue;
+                        const nCell = state.board[neighbor.row][neighbor.col];
+                        if (nCell && !nCell.isEmpty && nCell.tileType !== null) {
+                            const myEdge = neighbor.edge;
+                            const theirEdge = (myEdge + 3) % 6;
+                            const nEdges = rotateEdges(TILE_TYPES[nCell.tileType], nCell.rotation);
+                            if (edges.includes(myEdge) && nEdges.includes(theirEdge)) {
+                                score += 10; // Бонус за соединение с другими тайлами
+                            }
+                        }
+                    }
+                    
+                    // КРИТИЧЕСКИ ВАЖНО: проверяем, можно ли будет пройти по размещенному тайлу
+                    // Симулируем размещение тайла и проверяем доступные ходы
+                    const tempCellState = {...state.board[targetCell.row][targetCell.col]};
+                    state.board[targetCell.row][targetCell.col] = {
+                        ...tempCellState,
+                        tileType: state.nextTileType,
+                        rotation: rotation,
+                        isEmpty: false
+                    };
+                    
+                    const tempPlayer = {row: aiPlayer.row, col: aiPlayer.col};
+                    const movesAfterPlacement = getValidMoves(tempPlayer);
+                    const canMoveToNewTile = movesAfterPlacement.some(m => 
+                        m.row === targetCell.row && m.col === targetCell.col
+                    );
+                    
+                    // Восстанавливаем состояние
+                    state.board[targetCell.row][targetCell.col] = tempCellState;
+                    
+                    // Если нельзя пройти по размещенному тайлу, это плохо
+                    if (!canMoveToNewTile) {
+                        score -= 150; // Большой штраф за тайл, по которому нельзя пройти
+                        logAi(`⚠️ Размещение в (${targetCell.row},${targetCell.col}) поворот ${rotation} не создаст проход`, 'warning');
+                    } else {
+                        score += 30; // Бонус за тайл, по которому можно пройти
+                    }
+                    
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestCell = targetCell;
+                        bestRotation = rotation;
+                    }
                 }
             }
             
-            const bestRotation = getBestRotationForTile(bestCell.row, bestCell.col, state.nextTileType);
+            // Размещаем только если нашли вариант, который создает проход И по которому можно пройти
+            // bestScore должен быть >= 200 (создает соединение) + 30 (можно пройти) = 230 минимум
+            if (bestCell && bestScore >= 230) {
+                actions.push({
+                    type: 'placeAdjacent',
+                    cost: COST.placeAdjacent,
+                    possible: true,
+                    target: bestCell,
+                    rotation: bestRotation,
+                    priority: 95 // Высокий приоритет для создания прохода
+                });
+            }
+        }
+    }
+    
+    // 3. Замена соседних тайлов (если можем и это создаст проход)
+    if (state.points >= COST.replaceAdjacent) {
+        const adjacentReplaceable = getAdjacentReplaceable();
+        if (adjacentReplaceable.length > 0) {
+            for (const targetCell of adjacentReplaceable) {
+                const cell = state.board[targetCell.row][targetCell.col];
+                if (!cell || cell.isEmpty || cell.tileType === null) continue;
+                
+                // КРИТИЧЕСКИ ВАЖНО: проверяем, создает ли ТЕКУЩИЙ тайл проход к игроку
+                // Если да - не трогаем его, ищем другой тайл
+                const neighbors = getNeighbors(aiPlayer.row, aiPlayer.col);
+                const playerNeighbor = neighbors.find(n => n.row === targetCell.row && n.col === targetCell.col);
+                let currentCreatesPath = false;
+                
+                if (playerNeighbor) {
+                    const myEdge = playerNeighbor.edge;
+                    const theirEdge = (myEdge + 3) % 6;
+                    const playerCell = state.board[aiPlayer.row][aiPlayer.col];
+                    if (playerCell && !playerCell.isEmpty && playerCell.tileType !== null) {
+                        const playerEdges = rotateEdges(TILE_TYPES[playerCell.tileType], playerCell.rotation);
+                        const currentEdges = rotateEdges(TILE_TYPES[cell.tileType], cell.rotation);
+                        if (currentEdges.includes(theirEdge) && playerEdges.includes(myEdge)) {
+                            currentCreatesPath = true;
+                            // Этот тайл уже создает проход, не трогаем его
+                            continue;
+                        }
+                    }
+                }
+                
+                // Тайл НЕ создает проход - проверяем, можно ли его исправить
+                // Проверяем все возможные повороты текущего тайла
+                for (let rotation = 0; rotation < 6; rotation++) {
+                    // Пропускаем текущий поворот, если он не создает проход
+                    if (rotation === cell.rotation && !currentCreatesPath) {
+                        continue; // Текущий поворот не помогает, проверяем другие
+                    }
+                    
+                    const edges = rotateEdges(TILE_TYPES[cell.tileType], rotation);
+                    let createsPath = false;
+                    let score = 0;
+                    
+                    if (playerNeighbor) {
+                        const myEdge = playerNeighbor.edge;
+                        const theirEdge = (myEdge + 3) % 6;
+                        const playerCell = state.board[aiPlayer.row][aiPlayer.col];
+                        if (playerCell && !playerCell.isEmpty && playerCell.tileType !== null) {
+                            const playerEdges = rotateEdges(TILE_TYPES[playerCell.tileType], playerCell.rotation);
+                            if (edges.includes(theirEdge) && playerEdges.includes(myEdge)) {
+                                createsPath = true;
+                                score = 160; // Высокий приоритет за создание прохода через поворот тупикового тайла
+                                
+                                // Бонус за направление к финишу
+                                const cellDist = Math.abs(targetCell.row - finish.row) + Math.abs(targetCell.col - finish.col);
+                                if (cellDist < currentDist) {
+                                    score += 50;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (createsPath) {
+                        // Поворот создает проход
+                        actions.push({
+                            type: 'rotateAdjacent',
+                            cost: COST.replaceAdjacent,
+                            possible: true,
+                            target: targetCell,
+                            newRotation: rotation,
+                            priority: score
+                        });
+                        break; // Нашли хороший поворот, не проверяем замену
+                    }
+                }
+                
+                // Если поворот не помогает, проверяем замену на новый тайл
+                for (let newTileType = 0; newTileType < TILE_TYPES.length; newTileType++) {
+                    for (let newRotation = 0; newRotation < 6; newRotation++) {
+                        const newEdges = rotateEdges(TILE_TYPES[newTileType], newRotation);
+                        
+                        if (playerNeighbor) {
+                            const myEdge = playerNeighbor.edge;
+                            const theirEdge = (myEdge + 3) % 6;
+                            const playerCell = state.board[aiPlayer.row][aiPlayer.col];
+                            if (playerCell && !playerCell.isEmpty && playerCell.tileType !== null) {
+                                const playerEdges = rotateEdges(TILE_TYPES[playerCell.tileType], playerCell.rotation);
+                                if (newEdges.includes(theirEdge) && playerEdges.includes(myEdge)) {
+                                    const cellDist = Math.abs(targetCell.row - finish.row) + Math.abs(targetCell.col - finish.col);
+                                    let score = 150; // Высокий приоритет за создание прохода через замену тупикового тайла
+                                    if (cellDist < currentDist) {
+                                        score += 50;
+                                    }
+                                    
+                                    // Сохраняем лучший вариант замены
+                                    actions.push({
+                                        type: 'replaceAdjacent',
+                                        cost: COST.replaceAdjacent,
+                                        possible: true,
+                                        target: targetCell,
+                                        newTileType: newTileType,
+                                        newRotation: newRotation,
+                                        priority: score
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 4. Замена любых тайлов (если можем и это создаст проход)
+    if (state.points >= COST.replace) {
+        const allReplaceable = getReplaceable();
+        if (allReplaceable.length > 0) {
+            // Ищем тайлы, которые блокируют проход
+            for (const targetCell of allReplaceable) {
+                const cell = state.board[targetCell.row][targetCell.col];
+                if (!cell || cell.isEmpty || cell.tileType === null) continue;
+                
+                // Проверяем, можно ли создать проход через замену
+                for (let newTileType = 0; newTileType < TILE_TYPES.length; newTileType++) {
+                    for (let newRotation = 0; newRotation < 6; newRotation++) {
+                        const newEdges = rotateEdges(TILE_TYPES[newTileType], newRotation);
+                        
+                        // Проверяем соединение с соседними тайлами
+                        const neighbors = getNeighbors(targetCell.row, targetCell.col);
+                        let connections = 0;
+                        let connectsToPlayer = false;
+                        
+                        for (const neighbor of neighbors) {
+                            const nCell = state.board[neighbor.row][neighbor.col];
+                            if (!nCell || nCell.isEmpty || nCell.tileType === null) continue;
+                            
+                            const myEdge = neighbor.edge;
+                            const theirEdge = (myEdge + 3) % 6;
+                            const nEdges = rotateEdges(TILE_TYPES[nCell.tileType], nCell.rotation);
+                            
+                            if (newEdges.includes(myEdge) && nEdges.includes(theirEdge)) {
+                                connections++;
+                                if (neighbor.row === aiPlayer.row && neighbor.col === aiPlayer.col) {
+                                    connectsToPlayer = true;
+                                }
+                            }
+                        }
+                        
+                        if (connectsToPlayer) {
+                            const cellDist = Math.abs(targetCell.row - finish.row) + Math.abs(targetCell.col - finish.col);
+                            let score = 120;
+                            if (cellDist < currentDist) {
+                                score += 40;
+                            }
+                            
+                            actions.push({
+                                type: 'replace',
+                                cost: COST.replace,
+                                possible: true,
+                                target: targetCell,
+                                newTileType: newTileType,
+                                newRotation: newRotation,
+                                priority: score
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // 5. Размещение где угодно (если не можем рядом) - только в направлении финиша
+    // ВАЖНО: размещение где угодно должно быть только если НЕТ возможности разместить рядом
+    // и если это действительно поможет создать проход к финишу
+    if (state.points >= COST.placeAnywhere && actions.filter(a => a.type === 'placeAdjacent').length === 0) {
+        const allEmpty = getAllEmpty();
+        if (allEmpty.length > 0) {
+            // Выбираем клетку ближе к финишу, но не дальше от текущей позиции
+            let bestCell = null;
+            let bestDist = Infinity;
+            let bestScore = -1;
             
-            actions.push({
-                type: 'placeAnywhere',
-                cost: COST.placeAnywhere,
-                possible: true,
-                target: bestCell,
-                rotation: bestRotation,
-                priority: 80
-            });
+            for (const cell of allEmpty) {
+                const distToFinish = Math.abs(cell.row - finish.row) + Math.abs(cell.col - finish.col);
+                const distFromPlayer = Math.abs(cell.row - aiPlayer.row) + Math.abs(cell.col - aiPlayer.col);
+                
+                // Предпочитаем клетки, которые ближе к финишу И не слишком далеко от игрока
+                // (чтобы можно было построить проход)
+                if (distToFinish < currentDist && distFromPlayer <= 3) {
+                    const score = (currentDist - distToFinish) * 10 - distFromPlayer;
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestCell = cell;
+                        bestDist = distToFinish;
+                    }
+                }
+            }
+            
+            // Если не нашли хорошую клетку в направлении финиша, ищем просто ближайшую к финишу
+            // НО только если она не слишком далеко от игрока (чтобы можно было построить проход)
+            if (!bestCell) {
+                for (const cell of allEmpty) {
+                    const distToFinish = Math.abs(cell.row - finish.row) + Math.abs(cell.col - finish.col);
+                    const distFromPlayer = Math.abs(cell.row - aiPlayer.row) + Math.abs(cell.col - aiPlayer.col);
+                    
+                    // Предпочитаем клетки ближе к финишу и не слишком далеко от игрока
+                    if (distToFinish < bestDist && distFromPlayer <= 4) {
+                        bestDist = distToFinish;
+                        bestCell = cell;
+                    }
+                }
+            }
+            
+            // Размещаем только если клетка действительно поможет (ближе к финишу и не слишком далеко)
+            if (bestCell) {
+                const distToFinish = Math.abs(bestCell.row - finish.row) + Math.abs(bestCell.col - finish.col);
+                const distFromPlayer = Math.abs(bestCell.row - aiPlayer.row) + Math.abs(bestCell.col - aiPlayer.col);
+                
+                // Размещаем только если это приближает к финишу И не слишком далеко от игрока
+                if (distToFinish < currentDist && distFromPlayer <= 4) {
+                    const bestRotation = getBestRotationForTile(bestCell.row, bestCell.col, state.nextTileType, aiPlayer, finish);
+                    
+                    // Приоритет ниже чем placeAdjacent (95), чтобы размещение рядом было приоритетнее
+                    let priority = 75; // Базовый приоритет (ниже чем placeAdjacent = 95)
+                    if (distToFinish < currentDist - 1) {
+                        priority = 80; // Немного выше, если значительно приближает
+                    }
+                    
+                    actions.push({
+                        type: 'placeAnywhere',
+                        cost: COST.placeAnywhere,
+                        possible: true,
+                        target: bestCell,
+                        rotation: bestRotation,
+                        priority: priority
+                    });
+                }
+            }
         }
     }
     
@@ -1111,9 +1649,54 @@ function aiMakeDecision() {
         return;
     }
     
+    // Фильтруем действия: если есть действия с приоритетом > 10, убираем возвраты назад
+    const goodActions = actions.filter(a => !a.isBacktracking || a.priority > 10);
+    const actionsToConsider = goodActions.length > 0 ? goodActions : actions;
+    
+    // Если единственное действие - возврат назад или движение в тупик, лучше завершить ход
+    // НО только если нет возможности разместить тайлы
+    if (actionsToConsider.length === 1) {
+        const onlyAction = actionsToConsider[0];
+        if (onlyAction.isBacktracking || onlyAction.willBeStuck) {
+            // Проверяем, можно ли разместить тайлы вместо возврата назад
+            const canPlaceAdjacent = state.points >= COST.placeAdjacent && getAdjacentEmpty(aiPlayer).length > 0;
+            const canPlaceAnywhere = state.points >= COST.placeAnywhere && getAllEmpty().length > 0;
+            
+            if (canPlaceAdjacent || canPlaceAnywhere) {
+                logAi('⚠️ Единственное движение - возврат назад, но можно разместить тайлы, продолжаем', 'info');
+                // Продолжаем, чтобы разместить тайлы
+            } else {
+                logAi('⚠️ Единственное действие - возврат назад или тупик, завершаем ход', 'warning');
+                completeAiTurn('🤖 ИИ: нет полезных действий, завершаю ход');
+                return;
+            }
+        }
+    }
+    
+    // Если все действия - возвраты назад или тупики, завершаем ход
+    // НО только если нет возможности разместить тайлы
+    const usefulActions = actionsToConsider.filter(a => !a.isBacktracking && !a.willBeStuck);
+    if (usefulActions.length === 0 && actionsToConsider.length > 0) {
+        // Проверяем, можно ли разместить тайлы
+        const canPlaceAdjacent = state.points >= COST.placeAdjacent && getAdjacentEmpty(aiPlayer).length > 0;
+        const canPlaceAnywhere = state.points >= COST.placeAnywhere && getAllEmpty().length > 0;
+        
+        if (canPlaceAdjacent || canPlaceAnywhere) {
+            logAi('⚠️ Все движения ведут в тупик, но можно разместить тайлы, продолжаем', 'info');
+            // Продолжаем, чтобы разместить тайлы
+        } else {
+            logAi('⚠️ Все действия ведут в тупик или назад, завершаем ход', 'warning');
+            completeAiTurn('🤖 ИИ: нет полезных действий, завершаю ход');
+            return;
+        }
+    }
+    
+    // Используем только полезные действия, если они есть
+    const finalActions = usefulActions.length > 0 ? usefulActions : actionsToConsider;
+    
     // Выполняем лучшее действие
-    const bestAction = actions[0];
-    logAi(`Выбрано действие: ${bestAction.type}`, 'strategy');
+    const bestAction = finalActions[0];
+    logAi(`Выбрано действие: ${bestAction.type} (приоритет: ${bestAction.priority})`, 'strategy');
     
     executeSimpleAiAction(bestAction, aiPlayer, finish);
 }
@@ -1129,6 +1712,12 @@ function executeSimpleAiAction(action, aiPlayer, finish) {
             return aiPerformSimplePlaceAdjacent(aiPlayer, finish, action);
         case 'placeAnywhere':
             return aiPerformSimplePlaceAnywhere(aiPlayer, finish, action);
+        case 'replaceAdjacent':
+            return aiPerformReplaceAdjacent(aiPlayer, finish, action);
+        case 'replace':
+            return aiPerformReplace(aiPlayer, finish, action);
+        case 'rotateAdjacent':
+            return aiPerformRotateAdjacent(aiPlayer, finish, action);
         default:
             logAi(`❌ Неизвестное действие: ${action.type}`, 'error');
             completeAiTurn('🤖 ИИ: неизвестное действие');
@@ -1141,6 +1730,12 @@ function aiPerformSimpleMove(aiPlayer, finish, action) {
     const target = action.target;
     
     logAi(`Ход: (${aiPlayer.row},${aiPlayer.col}) → (${target.row},${target.col})`, 'move');
+    
+    // Сохраняем текущую позицию в историю (храним последние 3 позиции)
+    aiLastPositions.unshift({row: aiPlayer.row, col: aiPlayer.col});
+    if (aiLastPositions.length > 3) {
+        aiLastPositions.pop(); // Удаляем самую старую позицию
+    }
     
     // Выполняем ход
     const oldPoints = state.points;
@@ -1224,10 +1819,25 @@ function aiPerformSimplePlaceAdjacent(aiPlayer, finish, action) {
     if (state.points > 0) {
         logAi(`Осталось очков: ${state.points}, продолжаем ход`, 'info');
         
+        // ВАЖНО: после размещения тайла проверяем, можно ли по нему пройти
+        // Если можно, это должно быть приоритетным действием
         setTimeout(() => {
             state.aiThinking = false;
             aiActionInProgress = false;
             aiTurnLock = false;
+            
+            // Проверяем, можно ли пройти по только что размещенному тайлу
+            const validMoves = getValidMoves(aiPlayer);
+            const canMoveToPlacedTile = validMoves.some(m => 
+                m.row === target.row && m.col === target.col
+            );
+            
+            if (canMoveToPlacedTile && state.points >= COST.move) {
+                logAi(`✅ Можно пройти по размещенному тайлу в (${target.row},${target.col}), продолжаем`, 'success');
+            } else if (state.points >= COST.move) {
+                logAi(`⚠️ Нельзя пройти по размещенному тайлу, проверяем другие варианты`, 'warning');
+            }
+            
             aiMakeDecision();
         }, 1000);
     } else {
@@ -1280,6 +1890,157 @@ function aiPerformSimplePlaceAnywhere(aiPlayer, finish, action) {
     if (state.points > 0) {
         logAi(`Осталось очков: ${state.points}, продолжаем ход`, 'info');
         
+        setTimeout(() => {
+            state.aiThinking = false;
+            aiActionInProgress = false;
+            aiTurnLock = false;
+            aiMakeDecision();
+        }, 1000);
+    } else {
+        completeAiTurn('🤖 ИИ завершает ход.');
+    }
+    
+    return true;
+}
+
+// Замена соседнего тайла
+function aiPerformReplaceAdjacent(aiPlayer, finish, action) {
+    const target = action.target;
+    const newTileType = action.newTileType !== undefined ? action.newTileType : state.nextTileType;
+    const newRotation = action.newRotation !== undefined ? action.newRotation : 0;
+    
+    logAi(`Замена рядом: (${target.row},${target.col}), новый тайл ${newTileType}, поворот ${newRotation}`, 'replace');
+    
+    const oldPoints = state.points;
+    const oldCellState = {...state.board[target.row][target.col]};
+    
+    state.lastTilePlacement = {
+        action: 'replaceAdjacent',
+        row: target.row,
+        col: target.col,
+        previousCellState: oldCellState,
+        pointsUsed: COST.replaceAdjacent,
+        nextTileTypeBefore: state.nextTileType,
+        nextTileRotationBefore: state.nextTileRotation
+    };
+    
+    state.board[target.row][target.col] = {
+        ...oldCellState,
+        tileType: newTileType,
+        rotation: newRotation
+    };
+    
+    state.points -= COST.replaceAdjacent;
+    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+    state.nextTileRotation = 0;
+    
+    logAi(`Тайл заменен! Очки: ${oldPoints} → ${state.points}`, 'success');
+    updateStatus(`🤖 ИИ заменил тайл`);
+    
+    if (typeof renderBoard === 'function') renderBoard();
+    if (typeof renderNextTile === 'function') renderNextTile();
+    if (typeof updateUI === 'function') updateUI();
+    
+    if (state.points > 0) {
+        setTimeout(() => {
+            state.aiThinking = false;
+            aiActionInProgress = false;
+            aiTurnLock = false;
+            aiMakeDecision();
+        }, 1000);
+    } else {
+        completeAiTurn('🤖 ИИ завершает ход.');
+    }
+    
+    return true;
+}
+
+// Замена любого тайла
+function aiPerformReplace(aiPlayer, finish, action) {
+    const target = action.target;
+    const newTileType = action.newTileType !== undefined ? action.newTileType : state.nextTileType;
+    const newRotation = action.newRotation !== undefined ? action.newRotation : 0;
+    
+    logAi(`Замена: (${target.row},${target.col}), новый тайл ${newTileType}, поворот ${newRotation}`, 'replace');
+    
+    const oldPoints = state.points;
+    const oldCellState = {...state.board[target.row][target.col]};
+    
+    state.lastTilePlacement = {
+        action: 'replace',
+        row: target.row,
+        col: target.col,
+        previousCellState: oldCellState,
+        pointsUsed: COST.replace,
+        nextTileTypeBefore: state.nextTileType,
+        nextTileRotationBefore: state.nextTileRotation
+    };
+    
+    state.board[target.row][target.col] = {
+        ...oldCellState,
+        tileType: newTileType,
+        rotation: newRotation
+    };
+    
+    state.points -= COST.replace;
+    state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
+    state.nextTileRotation = 0;
+    
+    logAi(`Тайл заменен! Очки: ${oldPoints} → ${state.points}`, 'success');
+    updateStatus(`🤖 ИИ заменил тайл`);
+    
+    if (typeof renderBoard === 'function') renderBoard();
+    if (typeof renderNextTile === 'function') renderNextTile();
+    if (typeof updateUI === 'function') updateUI();
+    
+    if (state.points > 0) {
+        setTimeout(() => {
+            state.aiThinking = false;
+            aiActionInProgress = false;
+            aiTurnLock = false;
+            aiMakeDecision();
+        }, 1000);
+    } else {
+        completeAiTurn('🤖 ИИ завершает ход.');
+    }
+    
+    return true;
+}
+
+// Поворот соседнего тайла
+function aiPerformRotateAdjacent(aiPlayer, finish, action) {
+    const target = action.target;
+    const newRotation = action.newRotation;
+    
+    logAi(`Поворот рядом: (${target.row},${target.col}), поворот ${newRotation}`, 'rotate');
+    
+    const oldPoints = state.points;
+    const oldCellState = {...state.board[target.row][target.col]};
+    
+    state.lastTilePlacement = {
+        action: 'rotateAdjacent',
+        row: target.row,
+        col: target.col,
+        previousCellState: oldCellState,
+        pointsUsed: COST.replaceAdjacent,
+        nextTileTypeBefore: state.nextTileType,
+        nextTileRotationBefore: state.nextTileRotation
+    };
+    
+    state.board[target.row][target.col] = {
+        ...oldCellState,
+        rotation: newRotation
+    };
+    
+    state.points -= COST.replaceAdjacent;
+    
+    logAi(`Тайл повернут! Очки: ${oldPoints} → ${state.points}`, 'success');
+    updateStatus(`🤖 ИИ повернул тайл`);
+    
+    if (typeof renderBoard === 'function') renderBoard();
+    if (typeof updateUI === 'function') updateUI();
+    
+    if (state.points > 0) {
         setTimeout(() => {
             state.aiThinking = false;
             aiActionInProgress = false;
@@ -1348,6 +2109,9 @@ function aiEndTurn() {
     
     state.currentPlayer = 0;
     state.phase = 'roll';
+    
+    // Сбрасываем историю позиций при завершении хода
+    aiLastPositions = [];
     
     state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
     state.nextTileRotation = 0;

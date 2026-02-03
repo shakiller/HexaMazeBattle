@@ -433,14 +433,21 @@ function rollDice() {
 
     let rolls = 0;
     const rollInterval = setInterval(() => {
+        // Показываем случайное число от 1 до 6 во время анимации
         diceEl.textContent = Math.floor(Math.random() * 6) + 1;
         rolls++;
         if (rolls > 12) {
             clearInterval(rollInterval);
+            // Генерируем финальное значение от 1 до 6
             const value = Math.floor(Math.random() * 6) + 1;
             state.points = value;
             diceEl.textContent = value;
             diceEl.classList.remove('rolling');
+            
+            // Логируем для отладки
+            if (state.aiOpponent && state.currentPlayer === 1) {
+                console.log(`🎲 ИИ выбросил: ${value} очков`);
+            }
 
             state.nextTileType = Math.floor(Math.random() * TILE_TYPES.length);
             state.nextTileRotation = 0;
@@ -450,15 +457,9 @@ function rollDice() {
             updateUI();
             
             if (state.aiOpponent && state.currentPlayer === 1) {
-                updateStatus(`ИИ выбросил ${value}! ИИ думает...`);
-                // Проверяем, что функция aiTurn доступна
-                if (typeof aiTurn === 'function') {
-                    setTimeout(aiTurn, 500);
-                } else if (typeof startAiTurn === 'function') {
-                    setTimeout(startAiTurn, 500);
-                } else {
-                    updateStatus('Ошибка: функции ИИ не загружены');
-                }
+                updateStatus(`🎲 ИИ выбросил ${value}! ИИ думает...`);
+                // НЕ вызываем aiTurn здесь, так как он уже будет вызван из aiTurn() после завершения анимации
+                // Это предотвращает двойной вызов
             } else {
                 updateStatus(`Выпало ${value}! Кликните на пустую клетку чтобы разместить тайл, или выберите действие.`);
             }
