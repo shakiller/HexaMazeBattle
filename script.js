@@ -1,21 +1,9 @@
-// Конфигурация PeerJS сервера
-// Измените эти настройки если используете свой сервер
-// Текущий сервер: https://0.peerjs.com:443/
-// Это бесплатный демо-сервер, может быть недоступен
-// Для развертывания своего сервера: https://github.com/peers/peerjs-server
-const PEERJS_CONFIG = {
-    host: '0.peerjs.com', // Замените на свой сервер, например: 'your-peerjs-server.com'
-    port: 443,
-    path: '/',
-    secure: true,
-    // Конфигурация для WebRTC (помогает с NAT/firewall)
-    config: {
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-        ]
-    }
-};
+// Gun.js - децентрализованная P2P база данных
+// Не требует собственного сервера, использует публичные пиры
+const GUN_PEERS = [
+    'https://gunjs.herokuapp.com/gun',
+    'https://gun-manhattan.herokuapp.com/gun'
+];
 
 const COST = {
     move: 1,
@@ -56,11 +44,11 @@ const state = {
     player1Confirmed: false,
     player2Confirmed: false,
     isHost: false,
-    peer: null,
-    peerConnection: null,
-    peerId: null,
+    firebaseRoomRef: null,
+    firebaseListeners: [],
     isConnected: false,
-    playerNumber: null // 0 для хоста, 1 для клиента
+    playerNumber: null, // 0 для хоста, 1 для клиента
+    playerId: null // Уникальный ID игрока
 };
 
 // Цвета игроков
@@ -495,13 +483,11 @@ function rollDice() {
             
             // Отправляем результат броска в онлайн режиме
             if (state.gameModeType === 'online' && state.isConnected) {
-                if (state.peerConnection) {
-                    state.peerConnection.send({
-                        type: 'diceRoll',
-                        player: state.playerNumber,
-                        value: value
-                    });
-                }
+                sendGunMessage({
+                    type: 'diceRoll',
+                    playerNumber: state.playerNumber,
+                    value: value
+                });
             }
             
             if (state.aiOpponent && state.currentPlayer === 1) {
@@ -902,10 +888,10 @@ function handleCellClick(row, col) {
             if (checkWin(player, cell)) {
                 renderBoard();
                 // Отправляем победу в онлайн режиме
-                if (state.gameModeType === 'online' && state.isConnected && state.peerConnection) {
-                    state.peerConnection.send({
+                if (state.gameModeType === 'online' && state.isConnected) {
+                    sendGunMessage({
                         type: 'gameWin',
-                        player: state.playerNumber
+                        playerNumber: state.playerNumber
                     });
                 }
                 showWinModal();
@@ -1216,18 +1202,16 @@ function endTurn() {
     document.getElementById('dice').textContent = '?';
     updateUI();
     
-    // Отправляем завершение хода в онлайн режиме
-    if (state.gameModeType === 'online' && state.isConnected) {
-        if (state.peerConnection) {
-            state.peerConnection.send({
-                type: 'turnEnd',
-                player: state.playerNumber,
-                currentPlayer: state.currentPlayer
-            });
-        }
-        // Синхронизируем состояние игры
-        sendGameState();
-    }
+            // Отправляем завершение хода в онлайн режиме
+            if (state.gameModeType === 'online' && state.isConnected) {
+                sendGunMessage({
+                    type: 'turnEnd',
+                    playerNumber: state.playerNumber,
+                    currentPlayer: state.currentPlayer
+                });
+                // Синхронизируем состояние игры
+                sendGameState();
+            }
     
     if (state.aiOpponent && state.currentPlayer === 1) {
         updateStatus('Ход ИИ...');
@@ -1412,7 +1396,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e =
     document.documentElement.classList.toggle('dark', e.matches);
 });
 
-// === ОНЛАЙН РЕЖИМ (PeerJS) ===
+// === ОНЛАЙН РЕЖИМ (WebSocket) ===
 
 function initOnlineMode() {
     // Сбрасываем состояние
@@ -1443,19 +1427,11 @@ function checkServerStatus() {
         serverStatusText.textContent = 'Проверка...';
     }
     
-    // PeerJS использует свой сервер, проверяем доступность
-    // URL сервера: https://0.peerjs.com:443/
-    // Это бесплатный демо-сервер, может быть недоступен
-    // Альтернативы:
-    // 1. Развернуть свой сервер PeerJS (https://github.com/peers/peerjs-server)
-    // 2. Использовать альтернативный сервер (если доступен)
-    // 3. Использовать другой сервис (PartyKit, Firebase и т.д.)
+    // Gun.js использует децентрализованную сеть, проверяем доступность
+    console.log('Проверка доступности Gun.js сети');
     
-    const serverUrl = `https://${PEERJS_CONFIG.host}:${PEERJS_CONFIG.port}${PEERJS_CONFIG.path}`;
-    console.log('Проверка доступности PeerJS сервера:', serverUrl);
-    const testPeer = new Peer(PEERJS_CONFIG);
-    
-    testPeer.on('open', () => {
+    if (typeof Gun !== 'undefined') {
+        // Gun.js загружен, сеть доступна
         state.serverStatus = 'online';
         if (serverStatusDot) {
             serverStatusDot.className = 'status-dot online';
@@ -1463,85 +1439,211 @@ function checkServerStatus() {
         if (serverStatusText) {
             serverStatusText.textContent = 'Доступен';
         }
-        testPeer.destroy();
-    });
-    
-    testPeer.on('error', (err) => {
-        state.serverStatus = 'offline';
-        if (serverStatusDot) {
-            serverStatusDot.className = 'status-dot offline';
-        }
-        if (serverStatusText) {
-            serverStatusText.textContent = 'Недоступен';
-        }
-        testPeer.destroy();
-    });
-    
-    setTimeout(() => {
-        if (state.serverStatus === 'checking') {
-            state.serverStatus = 'offline';
-            if (serverStatusDot) {
-                serverStatusDot.className = 'status-dot offline';
+        console.log('Gun.js сеть доступна');
+    } else {
+        // Ждем загрузки Gun.js
+        setTimeout(() => {
+            if (typeof Gun !== 'undefined') {
+                state.serverStatus = 'online';
+                if (serverStatusDot) {
+                    serverStatusDot.className = 'status-dot online';
+                }
+                if (serverStatusText) {
+                    serverStatusText.textContent = 'Доступен';
+                }
+            } else {
+                state.serverStatus = 'offline';
+                if (serverStatusDot) {
+                    serverStatusDot.className = 'status-dot offline';
+                }
+                if (serverStatusText) {
+                    serverStatusText.textContent = 'Недоступен';
+                }
             }
-            if (serverStatusText) {
-                serverStatusText.textContent = 'Таймаут';
-            }
-            testPeer.destroy();
-        }
-    }, 5000);
+        }, 2000);
+    }
 }
 
 function createRoom() {
-    if (state.peer) {
-        state.peer.destroy();
-    }
+    // Очищаем старое соединение если есть
+    cleanupGunListeners();
     
     updateStatus('Создание комнаты...');
     
     // Генерируем случайный ID для комнаты
     state.onlineRoomId = generateRoomId();
+    state.playerId = generatePlayerId();
     updateRoomIdDisplay();
     
-    // Создаем Peer с этим ID (хост)
-    console.log('Создание комнаты на сервере:', `https://${PEERJS_CONFIG.host}:${PEERJS_CONFIG.port}${PEERJS_CONFIG.path}`);
-    state.peer = new Peer(state.onlineRoomId, PEERJS_CONFIG);
+    // Инициализируем Gun.js
+    if (typeof Gun === 'undefined') {
+        updateStatus('Ошибка: Gun.js не загружен. Проверьте подключение к интернету.');
+        return;
+    }
+    
+    state.gun = Gun(GUN_PEERS);
+    state.gunRoom = state.gun.get('rooms').get(state.onlineRoomId);
     
     state.isHost = true;
     state.playerNumber = 0;
+    state.player1Confirmed = true;
     
-    state.peer.on('open', (id) => {
-        console.log('Комната создана, ID:', id);
-        state.onlineRoomId = id;
-        updateRoomIdDisplay();
-        state.player1Confirmed = true;
-        state.isConnected = false; // Пока не подключен второй игрок
-        updatePlayerStatuses();
-        updateOnlineButtons();
-        updateStatus(`Комната создана! ID: ${id}. Отправьте его второму игроку.`);
+    // Отправляем информацию о создании комнаты
+    state.gunRoom.get('host').put({
+        playerId: state.playerId,
+        playerNumber: 0,
+        timestamp: Date.now()
     });
     
-    state.peer.on('connection', (conn) => {
-        console.log('Хост: получено входящее соединение от игрока');
-        console.log('Состояние соединения при получении:', conn.open);
-        // Хост видит, что второй игрок подключился
-        state.player2Confirmed = true;
-        updatePlayerStatuses();
-        console.log('Хост: статус второго игрока обновлен на "подтвержден"');
-        handlePeerConnection(conn);
-    });
-    
-    state.peer.on('error', (err) => {
-        console.error('Ошибка Peer (хост):', err);
-        console.error('Тип ошибки:', err.type);
-        console.error('Код ошибки:', err.code);
-        if (err.type === 'peer-unavailable') {
-            updateStatus('ID комнаты занят. Попробуйте создать новую комнату.');
-        } else if (err.type === 'socket-error' || err.type === 'server-error') {
-            updateStatus('Ошибка сервера PeerJS. Попробуйте позже или используйте другой сервер.');
-        } else {
-            updateStatus('Ошибка создания комнаты: ' + (err.message || err.type || 'Неизвестная ошибка'));
+    // Слушаем подключение второго игрока
+    const player2Listener = state.gunRoom.get('client').on((data, key) => {
+        if (data && data.playerId && data.playerId !== state.playerId) {
+            console.log('Второй игрок подключился:', data);
+            state.player2Confirmed = true;
+            state.isConnected = true;
+            updatePlayerStatuses();
+            updateOnlineButtons();
+            updateStatus('Второй игрок подключился! Вы играете за Игрока 1. Начинаем игру.');
+            
+            // Отправляем начальное состояние игры
+            setTimeout(() => {
+                sendGameState();
+            }, 500);
         }
     });
+    state.gunListeners.push(player2Listener);
+    
+    // Слушаем игровые события
+    setupGunGameListeners();
+    
+    updateRoomIdDisplay();
+    updatePlayerStatuses();
+    updateOnlineButtons();
+    updateStatus(`Комната создана! ID: ${state.onlineRoomId}. Отправьте его второму игроку.`);
+}
+
+function setupGunGameListeners() {
+    if (!state.gunRoom) return;
+    
+    // Слушаем игровые события
+    const gameStateListener = state.gunRoom.get('gameState').on((data, key) => {
+        if (data && data.playerId !== state.playerId) {
+            console.log('Получено состояние игры:', data);
+            syncGameState(data.state);
+        }
+    });
+    state.gunListeners.push(gameStateListener);
+    
+    const actionListener = state.gunRoom.get('actions').on((data, key) => {
+        if (data && data.playerId !== state.playerId) {
+            console.log('Получено действие:', data);
+            handleRemoteAction(data.action);
+        }
+    });
+    state.gunListeners.push(actionListener);
+    
+    const turnEndListener = state.gunRoom.get('turnEnd').on((data, key) => {
+        if (data && data.playerId !== state.playerId) {
+            console.log('Ход завершен:', data);
+            state.currentPlayer = data.currentPlayer;
+            state.phase = 'roll';
+            state.points = 0;
+            state.selectedAction = null;
+            state.selectedCell = null;
+            state.lastTilePlacement = null;
+            clearHighlights();
+            document.getElementById('dice').textContent = '?';
+            updateUI();
+            const playerName = state.currentPlayer === state.playerNumber ? 'Ваш' : 'Оппонента';
+            updateStatus(`${playerName} ход. Бросьте кубик!`);
+        }
+    });
+    state.gunListeners.push(turnEndListener);
+    
+    const diceRollListener = state.gunRoom.get('diceRoll').on((data, key) => {
+        if (data && data.playerId !== state.playerId) {
+            console.log('Бросок кубика:', data);
+            updateStatus(`Оппонент выбросил ${data.value} очков`);
+        }
+    });
+    state.gunListeners.push(diceRollListener);
+    
+    const gameWinListener = state.gunRoom.get('gameWin').on((data, key) => {
+        if (data && data.playerId !== state.playerId) {
+            console.log('Победа оппонента:', data);
+            const winnerColor = PLAYER_COLORS[data.playerNumber];
+            document.getElementById('modal-title').textContent = '😔 Поражение';
+            document.getElementById('modal-title').style.color = winnerColor.primary;
+            document.getElementById('modal-text').innerHTML = 
+                `<span style="color: ${winnerColor.primary}; font-weight: bold;">Оппонент</span> победил!`;
+            document.getElementById('modal').classList.add('show');
+        }
+    });
+    state.gunListeners.push(gameWinListener);
+    
+    const requestStateListener = state.gunRoom.get('requestState').on((data, key) => {
+        if (data && data.playerId !== state.playerId && state.isHost) {
+            console.log('Запрос состояния от клиента');
+            sendGameState();
+        }
+    });
+    state.gunListeners.push(requestStateListener);
+}
+
+function sendGunMessage(message) {
+    if (!state.gunRoom) {
+        console.error('Gun комната не инициализирована');
+        return;
+    }
+    
+    const messageWithId = {
+        ...message,
+        playerId: state.playerId,
+        timestamp: Date.now()
+    };
+    
+    // Отправляем сообщение в соответствующую ветку Gun
+    switch (message.type) {
+        case 'gameState':
+            state.gunRoom.get('gameState').put(messageWithId);
+            break;
+        case 'action':
+            state.gunRoom.get('actions').put(messageWithId);
+            break;
+        case 'turnEnd':
+            state.gunRoom.get('turnEnd').put(messageWithId);
+            break;
+        case 'diceRoll':
+            state.gunRoom.get('diceRoll').put(messageWithId);
+            break;
+        case 'gameWin':
+            state.gunRoom.get('gameWin').put(messageWithId);
+            break;
+        case 'requestState':
+            state.gunRoom.get('requestState').put(messageWithId);
+            break;
+    }
+}
+
+function cleanupGunListeners() {
+    if (state.gunListeners) {
+        state.gunListeners.forEach(listener => {
+            if (listener && typeof listener.off === 'function') {
+                listener.off();
+            }
+        });
+        state.gunListeners = [];
+    }
+    if (state.gunRoom) {
+        state.gunRoom = null;
+    }
+    if (state.gun) {
+        state.gun = null;
+    }
+}
+
+function generatePlayerId() {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
 function showJoinDialog() {
@@ -1576,377 +1678,67 @@ function joinRoom() {
 }
 
 function connectToRoom(roomId) {
-    if (state.peer) {
-        state.peer.destroy();
-    }
+    // Очищаем старое соединение если есть
+    cleanupGunListeners();
     
     updateStatus('Подключение к комнате...');
     
-    // Создаем Peer без ID (клиент)
-    console.log('Подключение к серверу:', `https://${PEERJS_CONFIG.host}:${PEERJS_CONFIG.port}${PEERJS_CONFIG.path}`);
-    state.peer = new Peer(PEERJS_CONFIG);
+    // Сохраняем ID комнаты
+    state.onlineRoomId = roomId;
+    state.playerId = generatePlayerId();
+    updateRoomIdDisplay();
+    
+    // Инициализируем Gun.js
+    if (typeof Gun === 'undefined') {
+        updateStatus('Ошибка: Gun.js не загружен. Проверьте подключение к интернету.');
+        return;
+    }
+    
+    state.gun = Gun(GUN_PEERS);
+    state.gunRoom = state.gun.get('rooms').get(state.onlineRoomId);
     
     state.isHost = false;
     state.playerNumber = 1;
     
-    state.peer.on('open', (id) => {
-        console.log('Подключен к серверу, мой ID:', id);
-        console.log('Попытка подключения к комнате:', roomId);
-        
-        // Подключаемся к хосту
-        try {
-            const conn = state.peer.connect(roomId, {
-                reliable: true
+    // Проверяем существование комнаты
+    state.gunRoom.get('host').on((data, key) => {
+        if (data && data.playerId) {
+            console.log('Хост найден:', data);
+            state.player1Confirmed = true;
+            
+            // Отправляем информацию о подключении
+            state.gunRoom.get('client').put({
+                playerId: state.playerId,
+                playerNumber: 1,
+                timestamp: Date.now()
             });
             
-            if (conn) {
-                console.log('Соединение создано, ожидание установления...');
-                console.log('Состояние соединения:', conn.open ? 'открыто' : 'закрыто');
-                
-                // Устанавливаем промежуточный статус - соединение создано, идет попытка подключения
-                state.player1Confirmed = true; // Клиент видит, что пытается подключиться к хосту
-                updatePlayerStatuses();
-                updateStatus('Установление соединения...');
-                
-                // Добавляем обработчик ошибок до handlePeerConnection
-                conn.on('error', (err) => {
-                    console.error('Ошибка при создании соединения:', err);
-                    console.error('Тип ошибки:', err.type);
-                    console.error('Детали ошибки:', JSON.stringify(err));
-                    if (err.type === 'peer-unavailable' || err.message?.includes('Could not connect')) {
-                        updateStatus('Комната не найдена или хост отключился. Проверьте ID комнаты и убедитесь, что хост создал комнату и ждет подключения.');
-                    } else if (err.type === 'network') {
-                        updateStatus('Проблема с сетью. Проверьте подключение.');
-                    } else {
-                        updateStatus('Ошибка подключения: ' + (err.message || err.type || 'Неизвестная ошибка'));
-                    }
-                    state.player1Confirmed = false;
-                    state.player2Confirmed = false;
-                    updatePlayerStatuses();
-                });
-                
-                // Добавляем периодическую проверку состояния соединения
-                const checkConnectionInterval = setInterval(() => {
-                    if (conn.open) {
-                        console.log('Соединение открыто (обнаружено через проверку)');
-                        clearInterval(checkConnectionInterval);
-                        if (!state.isConnected) {
-                            // Вызываем обработчик открытия вручную
-                            setTimeout(() => {
-                                if (conn.open && !state.isConnected && handlePeerConnection) {
-                                    console.log('Принудительно вызываем handleConnectionOpen');
-                                    // Находим функцию handleConnectionOpen из handlePeerConnection
-                                    if (typeof handleConnectionOpen === 'function') {
-                                        handleConnectionOpen();
-                                    }
-                                }
-                            }, 100);
-                        }
-                    } else if (conn.peerConnection) {
-                        const iceState = conn.peerConnection.iceConnectionState;
-                        const dataChannel = conn.dataChannel || (conn.peerConnection && conn.peerConnection.getDataChannel && conn.peerConnection.getDataChannel());
-                        
-                        if (iceState && iceState !== 'checking' && iceState !== 'new') {
-                            console.log('ICE состояние:', iceState, 'DataChannel:', dataChannel ? (dataChannel.readyState || 'есть') : 'нет');
-                            
-                            if (iceState === 'connected' || iceState === 'completed') {
-                                // ICE соединение установлено, проверяем DataChannel
-                                if (dataChannel && dataChannel.readyState === 'open') {
-                                    console.log('DataChannel открыт, но conn.open еще false - принудительно открываем');
-                                    clearInterval(checkConnectionInterval);
-                                    // Устанавливаем флаг открытости вручную
-                                    conn.open = true;
-                                    // Вызываем событие открытия
-                                    if (conn.emit) {
-                                        conn.emit('open');
-                                    }
-                                } else if (dataChannel && dataChannel.readyState === 'connecting') {
-                                    console.log('DataChannel подключается...');
-                                }
-                            } else if (iceState === 'failed' || iceState === 'disconnected') {
-                                console.error('ICE соединение провалилось:', iceState);
-                                clearInterval(checkConnectionInterval);
-                                updateStatus('Не удалось установить соединение. Возможны проблемы с NAT/firewall. Попробуйте использовать VPN или разверните собственный сервер с TURN.');
-                                state.player1Confirmed = false;
-                                state.player2Confirmed = false;
-                                updatePlayerStatuses();
-                            }
-                        }
-                    }
-                }, 500); // Проверяем каждые 500мс
-                
-                // Останавливаем проверку через 20 секунд
-                setTimeout(() => {
-                    clearInterval(checkConnectionInterval);
-                    if (!conn.open && !state.isConnected) {
-                        console.error('Таймаут проверки соединения');
-                    }
-                }, 20000);
-                
-                // Добавляем обработчик состояния ICE (WebRTC)
-                if (conn.peerConnection) {
-                    conn.peerConnection.oniceconnectionstatechange = () => {
-                        const iceState = conn.peerConnection.iceConnectionState;
-                        console.log('ICE состояние соединения изменилось:', iceState);
-                        
-                        if (iceState === 'connected' || iceState === 'completed') {
-                            console.log('ICE соединение установлено, проверяем DataChannel');
-                            // Проверяем DataChannel после установления ICE
-                            setTimeout(() => {
-                                const dataChannel = conn.dataChannel || (conn.peerConnection && conn.peerConnection.getDataChannel && conn.peerConnection.getDataChannel());
-                                if (dataChannel) {
-                                    console.log('DataChannel состояние:', dataChannel.readyState);
-                                    if (dataChannel.readyState === 'open' && !conn.open) {
-                                        console.log('DataChannel открыт, но conn.open false - исправляем');
-                                        conn.open = true;
-                                        if (conn.emit) {
-                                            conn.emit('open');
-                                        }
-                                    } else if (dataChannel.readyState !== 'open') {
-                                        // Добавляем обработчик открытия DataChannel
-                                        dataChannel.onopen = () => {
-                                            console.log('DataChannel открыт через обработчик');
-                                            if (!conn.open) {
-                                                conn.open = true;
-                                                if (conn.emit) {
-                                                    conn.emit('open');
-                                                }
-                                            }
-                                        };
-                                    }
-                                }
-                            }, 500);
-                        } else if (iceState === 'failed' || iceState === 'disconnected') {
-                            console.error('ICE соединение провалилось');
-                            updateStatus('Не удалось установить соединение. Возможны проблемы с NAT/firewall. Попробуйте использовать VPN или разверните собственный сервер с TURN.');
-                            state.player1Confirmed = false;
-                            state.player2Confirmed = false;
-                            updatePlayerStatuses();
-                        }
-                    };
-                }
-                
-                handlePeerConnection(conn);
-            } else {
-                console.error('Не удалось создать соединение - conn is null');
-                updateStatus('Не удалось создать соединение с комнатой. Проверьте ID.');
-            }
-        } catch (err) {
-            console.error('Исключение при подключении:', err);
-            updateStatus('Ошибка подключения: ' + err.message);
-            state.player1Confirmed = false;
-            state.player2Confirmed = false;
-            updatePlayerStatuses();
-        }
-    });
-    
-    state.peer.on('error', (err) => {
-        console.error('Ошибка Peer:', err);
-        console.error('Тип ошибки:', err.type);
-        console.error('Код ошибки:', err.code);
-        
-        // Обрабатываем разные типы ошибок
-        if (err.type === 'peer-unavailable' || err.message.includes('Could not connect to peer')) {
-            updateStatus('Комната не найдена или хост отключился. Проверьте ID комнаты и убедитесь, что хост создал комнату.');
-        } else if (err.type === 'network') {
-            updateStatus('Проблема с сетью. Проверьте подключение.');
-        } else {
-            updateStatus('Ошибка подключения: ' + (err.message || err.type || 'Неизвестная ошибка'));
-        }
-        
-        state.player1Confirmed = false;
-        state.player2Confirmed = false;
-        updatePlayerStatuses();
-    });
-}
-
-function handlePeerConnection(conn) {
-    state.peerConnection = conn;
-    console.log('Обработка соединения, isHost:', state.isHost);
-    console.log('Соединение уже открыто?', conn.open);
-    
-    let connectionTimeoutId = null;
-    
-    function handleConnectionOpen() {
-        // Очищаем таймаут если соединение открылось
-        if (connectionTimeoutId) {
-            clearTimeout(connectionTimeoutId);
-            connectionTimeoutId = null;
-        }
-        
-        console.log('Соединение установлено! isHost:', state.isHost);
-        state.isConnected = true;
-        
-        if (state.isHost) {
-            // Хост видит, что клиент подключился
             state.player2Confirmed = true;
-            console.log('Хост: второй игрок подключен');
-            updateStatus('Второй игрок подключился! Вы играете за Игрока 1. Начинаем игру.');
-            // Отправляем начальное состояние игры клиенту
-            setTimeout(() => {
-                sendGameState();
-            }, 500);
-        } else {
-            // Клиент видит, что хост подключен
-            state.player1Confirmed = true;
-            state.player2Confirmed = true; // Клиент сам подключен
-            console.log('Клиент: подключен к хосту');
+            state.isConnected = true;
+            updatePlayerStatuses();
+            updateOnlineButtons();
             updateStatus('Подключено к комнате! Вы играете за Игрока 2. Ожидание начала игры...');
+            
             // Запрашиваем начальное состояние
             setTimeout(() => {
-                if (state.peerConnection && state.peerConnection.open) {
-                    console.log('Клиент: запрашиваю состояние игры');
-                    state.peerConnection.send({
-                        type: 'requestState'
-                    });
-                } else {
-                    console.error('Клиент: соединение не открыто для отправки запроса');
-                }
-            }, 500);
-        }
-        
-        updatePlayerStatuses();
-        updateOnlineButtons();
-        // Обновляем UI чтобы показать роли
-        updateUI();
-    }
-    
-    // Проверяем, не открыто ли соединение уже
-    if (conn.open) {
-        console.log('Соединение уже открыто, обрабатываем сразу');
-        handleConnectionOpen();
-    } else {
-        console.log('Ожидание открытия соединения...');
-        
-        // Добавляем таймаут для соединения
-        connectionTimeoutId = setTimeout(() => {
-            if (!state.isConnected && state.peerConnection === conn) {
-                console.error('Таймаут установления соединения');
-                console.error('Состояние соединения:', {
-                    open: conn.open,
-                    peerConnection: conn.peerConnection ? 'есть' : 'нет',
-                    dataChannel: conn.dataChannel ? 'есть' : 'нет'
+                sendGunMessage({
+                    type: 'requestState'
                 });
-                updateStatus('Таймаут подключения. Возможны проблемы с сетью или NAT. Попробуйте снова или используйте VPN.');
-                if (state.isHost) {
-                    state.player2Confirmed = false;
-                } else {
-                    state.player1Confirmed = false;
-                    state.player2Confirmed = false;
-                }
-                updatePlayerStatuses();
-            }
-        }, 15000); // 15 секунд таймаут
-    }
-    
-    conn.on('open', () => {
-        console.log('Событие "open" получено! isHost:', state.isHost);
-        handleConnectionOpen();
-    });
-    
-    conn.on('data', (data) => {
-        console.log('Получены данные через соединение:', data);
-        handlePeerData(data);
-    });
-    
-    conn.on('close', () => {
-        console.log('Соединение закрыто');
-        state.isConnected = false;
-        if (state.isHost) {
-            state.player2Confirmed = false;
+            }, 500);
         } else {
-            state.player1Confirmed = false;
-            state.player2Confirmed = false;
+            updateStatus('Комната не найдена. Проверьте ID комнаты.');
         }
-        updatePlayerStatuses();
-        updateStatus('Соединение потеряно');
     });
     
-    conn.on('error', (err) => {
-        console.error('Ошибка соединения:', err);
-        updateStatus('Ошибка соединения: ' + (err.message || err.type || 'Неизвестная ошибка'));
-        if (state.isHost) {
-            state.player2Confirmed = false;
-        } else {
-            state.player1Confirmed = false;
-            state.player2Confirmed = false;
-        }
-        updatePlayerStatuses();
-    });
-    
-    // Добавляем таймаут для соединения
-    setTimeout(() => {
-        if (!state.isConnected && state.peerConnection === conn) {
-            console.error('Таймаут установления соединения');
-            updateStatus('Таймаут подключения. Проверьте ID комнаты и попробуйте снова.');
-            if (state.isHost) {
-                state.player2Confirmed = false;
-            } else {
-                state.player1Confirmed = false;
-                state.player2Confirmed = false;
-            }
-            updatePlayerStatuses();
-        }
-    }, 10000); // 10 секунд таймаут
+    // Слушаем игровые события
+    setupGunGameListeners();
 }
 
-function handlePeerData(data) {
-    console.log('Получены данные:', data);
-    
-    switch (data.type) {
-        case 'gameState':
-            // Синхронизируем состояние игры
-            syncGameState(data.state);
-            break;
-        case 'action':
-            // Обрабатываем действие другого игрока
-            handleRemoteAction(data.action);
-            break;
-        case 'turnEnd':
-            // Завершение хода - только если это не наш ход
-            if (data.player !== state.playerNumber) {
-                // Не вызываем endTurn напрямую, чтобы избежать рекурсии
-                state.currentPlayer = data.currentPlayer;
-                state.phase = 'roll';
-                state.points = 0;
-                state.selectedAction = null;
-                state.selectedCell = null;
-                state.lastTilePlacement = null;
-                clearHighlights();
-                document.getElementById('dice').textContent = '?';
-                updateUI();
-                const playerName = state.currentPlayer === state.playerNumber ? 'Ваш' : 'Оппонента';
-                updateStatus(`${playerName} ход. Бросьте кубик!`);
-            }
-            break;
-        case 'diceRoll':
-            // Результат броска кубика - только для информации
-            if (data.player !== state.playerNumber) {
-                updateStatus(`Оппонент выбросил ${data.value} очков`);
-            }
-            break;
-        case 'gameWin':
-            // Победа другого игрока
-            if (data.player !== state.playerNumber) {
-                const winnerColor = PLAYER_COLORS[data.player];
-                document.getElementById('modal-title').textContent = '😔 Поражение';
-                document.getElementById('modal-title').style.color = winnerColor.primary;
-                document.getElementById('modal-text').innerHTML = 
-                    `<span style="color: ${winnerColor.primary}; font-weight: bold;">Оппонент</span> победил!`;
-                document.getElementById('modal').classList.add('show');
-            }
-            break;
-        case 'requestState':
-            // Запрос состояния от клиента - отправляем текущее состояние
-            if (state.isHost) {
-                sendGameState();
-            }
-            break;
-    }
-}
+// Старые функции handlePeerConnection и handlePeerData удалены
+// Теперь используется handleWebSocketMessage для обработки всех сообщений
 
 function sendGameState() {
-    if (!state.peerConnection || !state.isConnected) return;
+    if (!state.gunRoom || !state.isConnected) return;
     
     // Используем глубокое копирование для избежания ссылок
     const gameState = {
@@ -1959,14 +1751,10 @@ function sendGameState() {
         nextTileRotation: state.nextTileRotation
     };
     
-    try {
-        state.peerConnection.send({
-            type: 'gameState',
-            state: gameState
-        });
-    } catch (err) {
-        console.error('Ошибка отправки состояния:', err);
-    }
+    sendGunMessage({
+        type: 'gameState',
+        state: gameState
+    });
 }
 
 function syncGameState(remoteState) {
@@ -2002,15 +1790,7 @@ function handleRemoteAction(action) {
 }
 
 function disconnectRoom() {
-    if (state.peerConnection) {
-        state.peerConnection.close();
-        state.peerConnection = null;
-    }
-    
-    if (state.peer) {
-        state.peer.destroy();
-        state.peer = null;
-    }
+    cleanupGunListeners();
     
     state.isConnected = false;
     state.player1Confirmed = false;
@@ -2018,6 +1798,7 @@ function disconnectRoom() {
     state.onlineRoomId = null;
     state.isHost = false;
     state.playerNumber = null;
+    state.playerId = null;
     
     updateRoomIdDisplay();
     updatePlayerStatuses();
