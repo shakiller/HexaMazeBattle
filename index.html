@@ -6,6 +6,7 @@
     <title>HexMazeBattle</title>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
@@ -28,6 +29,50 @@
         <button class="mode-btn" id="btn-ai-easy" data-difficulty="easy">🤖 Легкий</button>
         <button class="mode-btn" id="btn-ai-medium" data-difficulty="medium">🤖 Средний</button>
         <button class="mode-btn" id="btn-ai-hard" data-difficulty="hard">🤖 Сложный</button>
+    </div>
+
+    <!-- Панель онлайн режима (скрыта по умолчанию) -->
+    <div class="online-mode-panel" id="online-mode-panel" style="display: none; margin: 10px 0;">
+        <div class="online-status-container">
+            <div class="online-status-item">
+                <span class="online-status-label">Сервер:</span>
+                <div class="status-indicator" id="server-status">
+                    <span class="status-dot" id="server-status-dot"></span>
+                    <span class="status-text" id="server-status-text">Проверка...</span>
+                </div>
+            </div>
+            <div class="online-status-item">
+                <span class="online-status-label">ID комнаты:</span>
+                <div class="room-id-container">
+                    <span class="room-id" id="room-id">—</span>
+                    <button class="copy-btn" id="copy-room-id-btn" onclick="copyRoomId()" title="Копировать ID комнаты">📋</button>
+                </div>
+            </div>
+            <div class="online-status-item">
+                <span class="online-status-label">Игрок 1:</span>
+                <div class="status-indicator">
+                    <span class="status-dot" id="player1-status-dot"></span>
+                    <span class="status-text" id="player1-status-text">Ожидание...</span>
+                </div>
+            </div>
+            <div class="online-status-item">
+                <span class="online-status-label">Игрок 2:</span>
+                <div class="status-indicator">
+                    <span class="status-dot" id="player2-status-dot"></span>
+                    <span class="status-text" id="player2-status-text">Ожидание...</span>
+                </div>
+            </div>
+        </div>
+        <div class="online-actions" id="online-actions" style="display: flex; gap: 10px; justify-content: center; margin-top: 15px; flex-wrap: wrap;">
+            <button class="mode-btn" id="btn-create-room" onclick="createRoom()">🏠 Создать комнату</button>
+            <button class="mode-btn" id="btn-join-room" onclick="showJoinDialog()">🔗 Присоединиться</button>
+            <button class="mode-btn" id="btn-disconnect" onclick="disconnectRoom()" style="display: none;">❌ Отключиться</button>
+        </div>
+        <div class="join-dialog" id="join-dialog" style="display: none; margin-top: 15px; padding: 15px; background: rgba(30, 41, 59, 0.6); border-radius: 8px; border: 1px solid rgba(14, 165, 233, 0.3);">
+            <input type="text" id="join-room-input" placeholder="Введите ID комнаты" onkeypress="if(event.key==='Enter') joinRoom()" style="padding: 8px 12px; background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(14, 165, 233, 0.4); border-radius: 6px; color: var(--text); font-family: inherit; font-size: 12px; width: 200px; margin-right: 10px;">
+            <button class="mode-btn" onclick="joinRoom()">Подключиться</button>
+            <button class="mode-btn" onclick="hideJoinDialog()" style="background: rgba(239, 68, 68, 0.2); border-color: #ef4444;">Отмена</button>
+        </div>
     </div>
 
     <div class="settings-panel" id="settings-panel">
