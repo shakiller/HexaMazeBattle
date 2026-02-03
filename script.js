@@ -1599,6 +1599,11 @@ function connectToRoom(roomId) {
                 console.log('Соединение создано, ожидание установления...');
                 console.log('Состояние соединения:', conn.open ? 'открыто' : 'закрыто');
                 
+                // Устанавливаем промежуточный статус - соединение создано, идет попытка подключения
+                state.player1Confirmed = true; // Клиент видит, что пытается подключиться к хосту
+                updatePlayerStatuses();
+                updateStatus('Установление соединения...');
+                
                 // Добавляем обработчик ошибок до handlePeerConnection
                 conn.on('error', (err) => {
                     console.error('Ошибка при создании соединения:', err);
@@ -1616,13 +1621,65 @@ function connectToRoom(roomId) {
                     updatePlayerStatuses();
                 });
                 
+                // Добавляем периодическую проверку состояния соединения
+                const checkConnectionInterval = setInterval(() => {
+                    if (conn.open) {
+                        console.log('Соединение открыто (обнаружено через проверку)');
+                        clearInterval(checkConnectionInterval);
+                        if (!state.isConnected) {
+                            // Вызываем обработчик открытия вручную
+                            setTimeout(() => {
+                                if (conn.open && !state.isConnected) {
+                                    console.log('Принудительно вызываем handleConnectionOpen');
+                                    const openHandler = conn._events && conn._events.open;
+                                    if (openHandler) {
+                                        openHandler();
+                                    } else {
+                                        // Прямой вызов через handlePeerConnection
+                                        handlePeerConnection(conn);
+                                    }
+                                }
+                            }, 100);
+                        }
+                    } else if (conn.peerConnection) {
+                        const iceState = conn.peerConnection.iceConnectionState;
+                        if (iceState && iceState !== 'checking' && iceState !== 'new') {
+                            console.log('ICE состояние:', iceState);
+                            if (iceState === 'failed' || iceState === 'disconnected') {
+                                console.error('ICE соединение провалилось:', iceState);
+                                clearInterval(checkConnectionInterval);
+                                updateStatus('Не удалось установить соединение. Возможны проблемы с NAT/firewall. Попробуйте использовать VPN.');
+                                state.player1Confirmed = false;
+                                state.player2Confirmed = false;
+                                updatePlayerStatuses();
+                            } else if (iceState === 'connected' || iceState === 'completed') {
+                                console.log('ICE соединение установлено, но conn.open еще false');
+                            }
+                        }
+                    }
+                }, 500); // Проверяем каждые 500мс
+                
+                // Останавливаем проверку через 20 секунд
+                setTimeout(() => {
+                    clearInterval(checkConnectionInterval);
+                    if (!conn.open && !state.isConnected) {
+                        console.error('Таймаут проверки соединения');
+                    }
+                }, 20000);
+                
                 // Добавляем обработчик состояния ICE (WebRTC)
                 if (conn.peerConnection) {
                     conn.peerConnection.oniceconnectionstatechange = () => {
-                        console.log('ICE состояние соединения:', conn.peerConnection.iceConnectionState);
-                        if (conn.peerConnection.iceConnectionState === 'failed') {
+                        const iceState = conn.peerConnection.iceConnectionState;
+                        console.log('ICE состояние соединения изменилось:', iceState);
+                        if (iceState === 'failed' || iceState === 'disconnected') {
                             console.error('ICE соединение провалилось');
-                            updateStatus('Не удалось установить соединение. Возможны проблемы с NAT/firewall.');
+                            updateStatus('Не удалось установить соединение. Возможны проблемы с NAT/firewall. Попробуйте использовать VPN.');
+                            state.player1Confirmed = false;
+                            state.player2Confirmed = false;
+                            updatePlayerStatuses();
+                        } else if (iceState === 'connected' || iceState === 'completed') {
+                            console.log('ICE соединение установлено');
                         }
                     };
                 }
