@@ -1507,15 +1507,17 @@ function createRoom() {
         state.onlineRoomId = id;
         updateRoomIdDisplay();
         state.player1Confirmed = true;
+        state.isConnected = false; // Пока не подключен второй игрок
         updatePlayerStatuses();
         updateOnlineButtons();
         updateStatus(`Комната создана! ID: ${id}. Отправьте его второму игроку.`);
     });
     
     state.peer.on('connection', (conn) => {
-        console.log('Игрок подключился!');
+        console.log('Хост: получено входящее соединение от игрока');
         // Хост видит, что второй игрок подключился
         state.player2Confirmed = true;
+        updatePlayerStatuses();
         handlePeerConnection(conn);
     });
     
@@ -1576,35 +1578,76 @@ function connectToRoom(roomId) {
     
     state.peer.on('open', (id) => {
         console.log('Подключен к серверу, мой ID:', id);
+        console.log('Попытка подключения к комнате:', roomId);
         
         // Подключаемся к хосту
-        const conn = state.peer.connect(roomId, {
-            reliable: true
-        });
-        
-        if (conn) {
-            handlePeerConnection(conn);
-        } else {
-            updateStatus('Не удалось подключиться к комнате');
+        try {
+            const conn = state.peer.connect(roomId, {
+                reliable: true
+            });
+            
+            if (conn) {
+                console.log('Соединение создано, ожидание установления...');
+                console.log('Состояние соединения:', conn.open ? 'открыто' : 'закрыто');
+                
+                // Добавляем обработчик ошибок до handlePeerConnection
+                conn.on('error', (err) => {
+                    console.error('Ошибка при создании соединения:', err);
+                    console.error('Тип ошибки:', err.type);
+                    console.error('Детали ошибки:', JSON.stringify(err));
+                    if (err.type === 'peer-unavailable') {
+                        updateStatus('Комната не найдена. Проверьте ID комнаты.');
+                    } else if (err.type === 'network') {
+                        updateStatus('Проблема с сетью. Проверьте подключение.');
+                    } else {
+                        updateStatus('Ошибка подключения: ' + (err.message || err.type || 'Неизвестная ошибка'));
+                    }
+                    state.player1Confirmed = false;
+                    state.player2Confirmed = false;
+                    updatePlayerStatuses();
+                });
+                
+                // Добавляем обработчик состояния соединения
+                conn.on('iceStateChange', (state) => {
+                    console.log('ICE состояние соединения:', state);
+                });
+                
+                handlePeerConnection(conn);
+            } else {
+                console.error('Не удалось создать соединение - conn is null');
+                updateStatus('Не удалось создать соединение с комнатой. Проверьте ID.');
+            }
+        } catch (err) {
+            console.error('Исключение при подключении:', err);
+            updateStatus('Ошибка подключения: ' + err.message);
+            state.player1Confirmed = false;
+            state.player2Confirmed = false;
+            updatePlayerStatuses();
         }
     });
     
     state.peer.on('error', (err) => {
         console.error('Ошибка Peer:', err);
         updateStatus('Ошибка подключения: ' + err.message);
+        state.player1Confirmed = false;
+        state.player2Confirmed = false;
+        updatePlayerStatuses();
     });
 }
 
 function handlePeerConnection(conn) {
     state.peerConnection = conn;
+    console.log('Обработка соединения, isHost:', state.isHost);
+    console.log('Соединение уже открыто?', conn.open);
     
-    conn.on('open', () => {
-        console.log('Соединение установлено!');
+    function handleConnectionOpen() {
+        console.log('Соединение установлено! isHost:', state.isHost);
         state.isConnected = true;
         
         if (state.isHost) {
             // Хост видит, что клиент подключился
             state.player2Confirmed = true;
+            console.log('Хост: второй игрок подключен');
             updateStatus('Второй игрок подключился! Вы играете за Игрока 1. Начинаем игру.');
             // Отправляем начальное состояние игры клиенту
             setTimeout(() => {
@@ -1614,13 +1657,17 @@ function handlePeerConnection(conn) {
             // Клиент видит, что хост подключен
             state.player1Confirmed = true;
             state.player2Confirmed = true; // Клиент сам подключен
+            console.log('Клиент: подключен к хосту');
             updateStatus('Подключено к комнате! Вы играете за Игрока 2. Ожидание начала игры...');
             // Запрашиваем начальное состояние
             setTimeout(() => {
-                if (state.peerConnection) {
+                if (state.peerConnection && state.peerConnection.open) {
+                    console.log('Клиент: запрашиваю состояние игры');
                     state.peerConnection.send({
                         type: 'requestState'
                     });
+                } else {
+                    console.error('Клиент: соединение не открыто для отправки запроса');
                 }
             }, 500);
         }
@@ -1629,24 +1676,65 @@ function handlePeerConnection(conn) {
         updateOnlineButtons();
         // Обновляем UI чтобы показать роли
         updateUI();
+    }
+    
+    // Проверяем, не открыто ли соединение уже
+    if (conn.open) {
+        console.log('Соединение уже открыто, обрабатываем сразу');
+        handleConnectionOpen();
+    } else {
+        console.log('Ожидание открытия соединения...');
+    }
+    
+    conn.on('open', () => {
+        console.log('Событие "open" получено! isHost:', state.isHost);
+        handleConnectionOpen();
     });
     
     conn.on('data', (data) => {
+        console.log('Получены данные через соединение:', data);
         handlePeerData(data);
     });
     
     conn.on('close', () => {
         console.log('Соединение закрыто');
         state.isConnected = false;
-        state.player2Confirmed = false;
+        if (state.isHost) {
+            state.player2Confirmed = false;
+        } else {
+            state.player1Confirmed = false;
+            state.player2Confirmed = false;
+        }
         updatePlayerStatuses();
         updateStatus('Соединение потеряно');
     });
     
     conn.on('error', (err) => {
         console.error('Ошибка соединения:', err);
-        updateStatus('Ошибка соединения: ' + err.message);
+        updateStatus('Ошибка соединения: ' + (err.message || err.type || 'Неизвестная ошибка'));
+        if (state.isHost) {
+            state.player2Confirmed = false;
+        } else {
+            state.player1Confirmed = false;
+            state.player2Confirmed = false;
+        }
+        updatePlayerStatuses();
     });
+    
+    // Добавляем таймаут для соединения
+    setTimeout(() => {
+        if (!state.isConnected && state.peerConnection === conn) {
+            console.error('Таймаут установления соединения');
+            updateStatus('Таймаут подключения. Проверьте ID комнаты и попробуйте снова.');
+            if (state.isHost) {
+                state.player2Confirmed = false;
+            } else {
+                state.player1Confirmed = false;
+                state.player2Confirmed = false;
+            }
+            updatePlayerStatuses();
+        }
+    }, 10000); // 10 секунд таймаут
 }
 
 function handlePeerData(data) {
