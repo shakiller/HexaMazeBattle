@@ -1531,11 +1531,15 @@ function createRoom() {
     });
     
     state.peer.on('error', (err) => {
-        console.error('Ошибка Peer:', err);
+        console.error('Ошибка Peer (хост):', err);
+        console.error('Тип ошибки:', err.type);
+        console.error('Код ошибки:', err.code);
         if (err.type === 'peer-unavailable') {
             updateStatus('ID комнаты занят. Попробуйте создать новую комнату.');
+        } else if (err.type === 'socket-error' || err.type === 'server-error') {
+            updateStatus('Ошибка сервера PeerJS. Попробуйте позже или используйте другой сервер.');
         } else {
-            updateStatus('Ошибка создания комнаты: ' + err.message);
+            updateStatus('Ошибка создания комнаты: ' + (err.message || err.type || 'Неизвестная ошибка'));
         }
     });
 }
@@ -1609,8 +1613,8 @@ function connectToRoom(roomId) {
                     console.error('Ошибка при создании соединения:', err);
                     console.error('Тип ошибки:', err.type);
                     console.error('Детали ошибки:', JSON.stringify(err));
-                    if (err.type === 'peer-unavailable') {
-                        updateStatus('Комната не найдена. Проверьте ID комнаты.');
+                    if (err.type === 'peer-unavailable' || err.message?.includes('Could not connect')) {
+                        updateStatus('Комната не найдена или хост отключился. Проверьте ID комнаты и убедитесь, что хост создал комнату и ждет подключения.');
                     } else if (err.type === 'network') {
                         updateStatus('Проблема с сетью. Проверьте подключение.');
                     } else {
@@ -1738,7 +1742,18 @@ function connectToRoom(roomId) {
     
     state.peer.on('error', (err) => {
         console.error('Ошибка Peer:', err);
-        updateStatus('Ошибка подключения: ' + err.message);
+        console.error('Тип ошибки:', err.type);
+        console.error('Код ошибки:', err.code);
+        
+        // Обрабатываем разные типы ошибок
+        if (err.type === 'peer-unavailable' || err.message.includes('Could not connect to peer')) {
+            updateStatus('Комната не найдена или хост отключился. Проверьте ID комнаты и убедитесь, что хост создал комнату.');
+        } else if (err.type === 'network') {
+            updateStatus('Проблема с сетью. Проверьте подключение.');
+        } else {
+            updateStatus('Ошибка подключения: ' + (err.message || err.type || 'Неизвестная ошибка'));
+        }
+        
         state.player1Confirmed = false;
         state.player2Confirmed = false;
         updatePlayerStatuses();
