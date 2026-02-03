@@ -1514,6 +1514,8 @@ function createRoom() {
     
     state.peer.on('connection', (conn) => {
         console.log('Игрок подключился!');
+        // Хост видит, что второй игрок подключился
+        state.player2Confirmed = true;
         handlePeerConnection(conn);
     });
     
@@ -1599,17 +1601,19 @@ function handlePeerConnection(conn) {
     conn.on('open', () => {
         console.log('Соединение установлено!');
         state.isConnected = true;
-        state.player2Confirmed = true;
-        updatePlayerStatuses();
-        updateOnlineButtons();
         
         if (state.isHost) {
+            // Хост видит, что клиент подключился
+            state.player2Confirmed = true;
             updateStatus('Второй игрок подключился! Вы играете за Игрока 1. Начинаем игру.');
             // Отправляем начальное состояние игры клиенту
             setTimeout(() => {
                 sendGameState();
             }, 500);
         } else {
+            // Клиент видит, что хост подключен
+            state.player1Confirmed = true;
+            state.player2Confirmed = true; // Клиент сам подключен
             updateStatus('Подключено к комнате! Вы играете за Игрока 2. Ожидание начала игры...');
             // Запрашиваем начальное состояние
             setTimeout(() => {
@@ -1621,6 +1625,8 @@ function handlePeerConnection(conn) {
             }, 500);
         }
         
+        updatePlayerStatuses();
+        updateOnlineButtons();
         // Обновляем UI чтобы показать роли
         updateUI();
     });
