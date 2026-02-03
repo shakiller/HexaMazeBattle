@@ -1629,31 +1629,43 @@ function connectToRoom(roomId) {
                         if (!state.isConnected) {
                             // Вызываем обработчик открытия вручную
                             setTimeout(() => {
-                                if (conn.open && !state.isConnected) {
+                                if (conn.open && !state.isConnected && handlePeerConnection) {
                                     console.log('Принудительно вызываем handleConnectionOpen');
-                                    const openHandler = conn._events && conn._events.open;
-                                    if (openHandler) {
-                                        openHandler();
-                                    } else {
-                                        // Прямой вызов через handlePeerConnection
-                                        handlePeerConnection(conn);
+                                    // Находим функцию handleConnectionOpen из handlePeerConnection
+                                    if (typeof handleConnectionOpen === 'function') {
+                                        handleConnectionOpen();
                                     }
                                 }
                             }, 100);
                         }
                     } else if (conn.peerConnection) {
                         const iceState = conn.peerConnection.iceConnectionState;
+                        const dataChannel = conn.dataChannel || (conn.peerConnection && conn.peerConnection.getDataChannel && conn.peerConnection.getDataChannel());
+                        
                         if (iceState && iceState !== 'checking' && iceState !== 'new') {
-                            console.log('ICE состояние:', iceState);
-                            if (iceState === 'failed' || iceState === 'disconnected') {
+                            console.log('ICE состояние:', iceState, 'DataChannel:', dataChannel ? (dataChannel.readyState || 'есть') : 'нет');
+                            
+                            if (iceState === 'connected' || iceState === 'completed') {
+                                // ICE соединение установлено, проверяем DataChannel
+                                if (dataChannel && dataChannel.readyState === 'open') {
+                                    console.log('DataChannel открыт, но conn.open еще false - принудительно открываем');
+                                    clearInterval(checkConnectionInterval);
+                                    // Устанавливаем флаг открытости вручную
+                                    conn.open = true;
+                                    // Вызываем событие открытия
+                                    if (conn.emit) {
+                                        conn.emit('open');
+                                    }
+                                } else if (dataChannel && dataChannel.readyState === 'connecting') {
+                                    console.log('DataChannel подключается...');
+                                }
+                            } else if (iceState === 'failed' || iceState === 'disconnected') {
                                 console.error('ICE соединение провалилось:', iceState);
                                 clearInterval(checkConnectionInterval);
-                                updateStatus('Не удалось установить соединение. Возможны проблемы с NAT/firewall. Попробуйте использовать VPN.');
+                                updateStatus('Не удалось установить соединение. Возможны проблемы с NAT/firewall. Попробуйте использовать VPN или разверните собственный сервер с TURN.');
                                 state.player1Confirmed = false;
                                 state.player2Confirmed = false;
                                 updatePlayerStatuses();
-                            } else if (iceState === 'connected' || iceState === 'completed') {
-                                console.log('ICE соединение установлено, но conn.open еще false');
                             }
                         }
                     }
@@ -1672,14 +1684,40 @@ function connectToRoom(roomId) {
                     conn.peerConnection.oniceconnectionstatechange = () => {
                         const iceState = conn.peerConnection.iceConnectionState;
                         console.log('ICE состояние соединения изменилось:', iceState);
-                        if (iceState === 'failed' || iceState === 'disconnected') {
+                        
+                        if (iceState === 'connected' || iceState === 'completed') {
+                            console.log('ICE соединение установлено, проверяем DataChannel');
+                            // Проверяем DataChannel после установления ICE
+                            setTimeout(() => {
+                                const dataChannel = conn.dataChannel || (conn.peerConnection && conn.peerConnection.getDataChannel && conn.peerConnection.getDataChannel());
+                                if (dataChannel) {
+                                    console.log('DataChannel состояние:', dataChannel.readyState);
+                                    if (dataChannel.readyState === 'open' && !conn.open) {
+                                        console.log('DataChannel открыт, но conn.open false - исправляем');
+                                        conn.open = true;
+                                        if (conn.emit) {
+                                            conn.emit('open');
+                                        }
+                                    } else if (dataChannel.readyState !== 'open') {
+                                        // Добавляем обработчик открытия DataChannel
+                                        dataChannel.onopen = () => {
+                                            console.log('DataChannel открыт через обработчик');
+                                            if (!conn.open) {
+                                                conn.open = true;
+                                                if (conn.emit) {
+                                                    conn.emit('open');
+                                                }
+                                            }
+                                        };
+                                    }
+                                }
+                            }, 500);
+                        } else if (iceState === 'failed' || iceState === 'disconnected') {
                             console.error('ICE соединение провалилось');
-                            updateStatus('Не удалось установить соединение. Возможны проблемы с NAT/firewall. Попробуйте использовать VPN.');
+                            updateStatus('Не удалось установить соединение. Возможны проблемы с NAT/firewall. Попробуйте использовать VPN или разверните собственный сервер с TURN.');
                             state.player1Confirmed = false;
                             state.player2Confirmed = false;
                             updatePlayerStatuses();
-                        } else if (iceState === 'connected' || iceState === 'completed') {
-                            console.log('ICE соединение установлено');
                         }
                     };
                 }
