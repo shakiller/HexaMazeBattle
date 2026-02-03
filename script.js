@@ -1531,6 +1531,11 @@ function createRoom() {
 function setupGunGameListeners() {
     if (!state.gunRoom) return;
     
+    // Убеждаемся, что массив слушателей инициализирован
+    if (!state.gunListeners || !Array.isArray(state.gunListeners)) {
+        state.gunListeners = [];
+    }
+    
     // Слушаем игровые события
     const gameStateListener = state.gunRoom.get('gameState').on((data, key) => {
         if (data && data.playerId !== state.playerId) {
