@@ -1515,9 +1515,11 @@ function createRoom() {
     
     state.peer.on('connection', (conn) => {
         console.log('Хост: получено входящее соединение от игрока');
+        console.log('Состояние соединения при получении:', conn.open);
         // Хост видит, что второй игрок подключился
         state.player2Confirmed = true;
         updatePlayerStatuses();
+        console.log('Хост: статус второго игрока обновлен на "подтвержден"');
         handlePeerConnection(conn);
     });
     
@@ -1911,17 +1913,29 @@ function updatePlayerStatuses() {
     const player2Dot = document.getElementById('player2-status-dot');
     const player2Text = document.getElementById('player2-status-text');
     
+    console.log('updatePlayerStatuses вызвана:', {
+        gameModeType: state.gameModeType,
+        isConnected: state.isConnected,
+        playerNumber: state.playerNumber,
+        player1Confirmed: state.player1Confirmed,
+        player2Confirmed: state.player2Confirmed
+    });
+    
     // Игрок 1
     if (player1Dot && player1Text) {
-        if (state.gameModeType === 'online' && state.isConnected) {
+        if (state.gameModeType === 'online') {
             if (state.playerNumber === 0) {
                 // Это вы (хост)
                 player1Dot.className = 'status-dot confirmed';
                 player1Text.textContent = 'Вы (Хост)';
-            } else if (state.player1Confirmed) {
-                // Это оппонент
+            } else if (state.playerNumber === 1 && state.player1Confirmed) {
+                // Клиент видит хоста
                 player1Dot.className = 'status-dot confirmed';
                 player1Text.textContent = 'Оппонент';
+            } else if (state.player1Confirmed) {
+                // Хост подтвержден
+                player1Dot.className = 'status-dot confirmed';
+                player1Text.textContent = 'Подтвержден';
             } else {
                 player1Dot.className = 'status-dot pending';
                 player1Text.textContent = 'Ожидание...';
@@ -1939,15 +1953,24 @@ function updatePlayerStatuses() {
     
     // Игрок 2
     if (player2Dot && player2Text) {
-        if (state.gameModeType === 'online' && state.isConnected) {
+        if (state.gameModeType === 'online') {
             if (state.playerNumber === 1) {
                 // Это вы (клиент)
                 player2Dot.className = 'status-dot confirmed';
                 player2Text.textContent = 'Вы (Клиент)';
+            } else if (state.playerNumber === 0) {
+                // Хост - проверяем статус второго игрока
+                if (state.player2Confirmed) {
+                    player2Dot.className = 'status-dot confirmed';
+                    player2Text.textContent = 'Оппонент';
+                } else {
+                    player2Dot.className = 'status-dot pending';
+                    player2Text.textContent = 'Ожидание...';
+                }
             } else if (state.player2Confirmed) {
-                // Это оппонент
+                // Клиент подтвержден (для других случаев)
                 player2Dot.className = 'status-dot confirmed';
-                player2Text.textContent = 'Оппонент';
+                player2Text.textContent = 'Подтвержден';
             } else {
                 player2Dot.className = 'status-dot pending';
                 player2Text.textContent = 'Ожидание...';
@@ -1962,6 +1985,8 @@ function updatePlayerStatuses() {
             }
         }
     }
+    
+    console.log('updatePlayerStatuses завершена. Текст игрока 2:', player2Text ? player2Text.textContent : 'не найден');
 }
 
 function copyRoomId() {
