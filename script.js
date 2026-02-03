@@ -1,8 +1,10 @@
 // Gun.js - децентрализованная P2P база данных
 // Не требует собственного сервера, использует публичные пиры
+// Если пиры недоступны, Gun.js будет работать локально и через P2P соединения
 const GUN_PEERS = [
     'https://gunjs.herokuapp.com/gun',
-    'https://gun-manhattan.herokuapp.com/gun'
+    'https://gun-manhattan.herokuapp.com/gun',
+    'https://gun-eu.herokuapp.com/gun'
 ];
 
 const COST = {
@@ -1468,6 +1470,9 @@ function createRoom() {
     // Очищаем старое соединение если есть
     cleanupGunListeners();
     
+    // Инициализируем массив слушателей
+    state.gunListeners = [];
+    
     updateStatus('Создание комнаты...');
     
     // Генерируем случайный ID для комнаты
@@ -1481,6 +1486,7 @@ function createRoom() {
         return;
     }
     
+    // Gun.js будет работать даже если пиры недоступны (через локальное хранилище и P2P)
     state.gun = Gun(GUN_PEERS);
     state.gunRoom = state.gun.get('rooms').get(state.onlineRoomId);
     
@@ -1626,14 +1632,14 @@ function sendGunMessage(message) {
 }
 
 function cleanupGunListeners() {
-    if (state.gunListeners) {
+    if (state.gunListeners && Array.isArray(state.gunListeners)) {
         state.gunListeners.forEach(listener => {
             if (listener && typeof listener.off === 'function') {
                 listener.off();
             }
         });
-        state.gunListeners = [];
     }
+    state.gunListeners = [];
     if (state.gunRoom) {
         state.gunRoom = null;
     }
@@ -1681,6 +1687,9 @@ function connectToRoom(roomId) {
     // Очищаем старое соединение если есть
     cleanupGunListeners();
     
+    // Инициализируем массив слушателей
+    state.gunListeners = [];
+    
     updateStatus('Подключение к комнате...');
     
     // Сохраняем ID комнаты
@@ -1694,6 +1703,7 @@ function connectToRoom(roomId) {
         return;
     }
     
+    // Gun.js будет работать даже если пиры недоступны (через локальное хранилище и P2P)
     state.gun = Gun(GUN_PEERS);
     state.gunRoom = state.gun.get('rooms').get(state.onlineRoomId);
     
@@ -1701,7 +1711,7 @@ function connectToRoom(roomId) {
     state.playerNumber = 1;
     
     // Проверяем существование комнаты
-    state.gunRoom.get('host').on((data, key) => {
+    const hostListener = state.gunRoom.get('host').on((data, key) => {
         if (data && data.playerId) {
             console.log('Хост найден:', data);
             state.player1Confirmed = true;
@@ -1729,6 +1739,7 @@ function connectToRoom(roomId) {
             updateStatus('Комната не найдена. Проверьте ID комнаты.');
         }
     });
+    state.gunListeners.push(hostListener);
     
     // Слушаем игровые события
     setupGunGameListeners();
