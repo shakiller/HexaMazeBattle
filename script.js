@@ -1,3 +1,15 @@
+// Конфигурация PeerJS сервера
+// Измените эти настройки если используете свой сервер
+// Текущий сервер: https://0.peerjs.com:443/
+// Это бесплатный демо-сервер, может быть недоступен
+// Для развертывания своего сервера: https://github.com/peers/peerjs-server
+const PEERJS_CONFIG = {
+    host: '0.peerjs.com', // Замените на свой сервер, например: 'your-peerjs-server.com'
+    port: 443,
+    path: '/',
+    secure: true
+};
+
 const COST = {
     move: 1,
     placeAdjacent: 2,
@@ -502,7 +514,15 @@ function updateUI() {
     const diceEl = document.getElementById('dice');
     const rollBtn = document.getElementById('roll-btn');
 
-    if (state.phase === 'roll') {
+    // Проверяем, можно ли бросать кубик
+    let canRoll = state.phase === 'roll';
+    
+    // В онлайн режиме блокируем если не наш ход
+    if (state.gameModeType === 'online' && state.isConnected) {
+        canRoll = canRoll && (state.currentPlayer === state.playerNumber);
+    }
+    
+    if (canRoll) {
         diceEl.classList.remove('disabled');
         rollBtn.disabled = false;
     } else {
@@ -515,38 +535,74 @@ function updateUI() {
     // Не блокируем кнопки для игрока, только для ИИ
     const isAiTurn = state.aiOpponent && state.currentPlayer === 1;
     
+    // В онлайн режиме блокируем кнопки если не наш ход
+    const isOnlineNotMyTurn = state.gameModeType === 'online' && state.isConnected && 
+                               state.currentPlayer !== state.playerNumber;
+    
     document.getElementById('btn-move').disabled =
-        state.phase !== 'action' || state.points < COST.move || !canMoveAnywhere(player) || isAiTurn;
+        state.phase !== 'action' || state.points < COST.move || !canMoveAnywhere(player) || isAiTurn || isOnlineNotMyTurn;
 
     document.getElementById('btn-place-adj').disabled =
-        state.phase !== 'action' || state.points < COST.placeAdjacent || !hasAdjacentEmpty(player) || isAiTurn;
+        state.phase !== 'action' || state.points < COST.placeAdjacent || !hasAdjacentEmpty(player) || isAiTurn || isOnlineNotMyTurn;
 
     document.getElementById('btn-place-any').disabled =
-        state.phase !== 'action' || state.points < COST.placeAnywhere || !hasAnyEmpty() || isAiTurn;
+        state.phase !== 'action' || state.points < COST.placeAnywhere || !hasAnyEmpty() || isAiTurn || isOnlineNotMyTurn;
 
     document.getElementById('btn-replace-adj').disabled =
-        state.phase !== 'action' || state.points < COST.replaceAdjacent || !hasAdjacentReplaceable() || isAiTurn;
+        state.phase !== 'action' || state.points < COST.replaceAdjacent || !hasAdjacentReplaceable() || isAiTurn || isOnlineNotMyTurn;
 
     document.getElementById('btn-replace').disabled =
-        state.phase !== 'action' || state.points < COST.replace || !hasReplaceable() || isAiTurn;
+        state.phase !== 'action' || state.points < COST.replace || !hasReplaceable() || isAiTurn || isOnlineNotMyTurn;
 
-    document.getElementById('btn-end').disabled = state.phase !== 'action' || isAiTurn;
+    document.getElementById('btn-end').disabled = state.phase !== 'action' || isAiTurn || isOnlineNotMyTurn;
     
     document.getElementById('btn-undo').disabled = 
-        state.phase !== 'action' || state.lastTilePlacement === null || isAiTurn;
+        state.phase !== 'action' || state.lastTilePlacement === null || isAiTurn || isOnlineNotMyTurn;
 
     document.getElementById('player1-section').classList.toggle('active', state.currentPlayer === 0);
     document.getElementById('player2-section').classList.toggle('active', state.currentPlayer === 1);
     document.getElementById('player2-section').style.display = state.numPlayers > 1 ? 'flex' : 'none';
 
+    // Обновляем заголовки игроков в онлайн режиме
+    const player1Title = document.querySelector('#player1-section .player-title');
     const player2Title = document.querySelector('#player2-section .player-title');
-    if (player2Title) {
-        if (state.aiOpponent) {
-            player2Title.textContent = 'ИИ';
-            player2Title.style.color = PLAYER_COLORS[1].primary;
-        } else {
-            player2Title.textContent = 'Игрок 2';
-            player2Title.style.color = PLAYER_COLORS[1].primary;
+    
+    if (state.gameModeType === 'online' && state.isConnected) {
+        // Показываем "Вы" и "Оппонент"
+        if (player1Title) {
+            if (state.playerNumber === 0) {
+                player1Title.textContent = 'Вы (Игрок 1)';
+                player1Title.style.color = PLAYER_COLORS[0].primary;
+            } else {
+                player1Title.textContent = 'Оппонент (Игрок 1)';
+                player1Title.style.color = PLAYER_COLORS[0].primary;
+            }
+        }
+        
+        if (player2Title) {
+            if (state.playerNumber === 1) {
+                player2Title.textContent = 'Вы (Игрок 2)';
+                player2Title.style.color = PLAYER_COLORS[1].primary;
+            } else {
+                player2Title.textContent = 'Оппонент (Игрок 2)';
+                player2Title.style.color = PLAYER_COLORS[1].primary;
+            }
+        }
+    } else {
+        // Обычный режим
+        if (player1Title) {
+            player1Title.textContent = 'Игрок';
+            player1Title.style.color = PLAYER_COLORS[0].primary;
+        }
+        
+        if (player2Title) {
+            if (state.aiOpponent) {
+                player2Title.textContent = 'ИИ';
+                player2Title.style.color = PLAYER_COLORS[1].primary;
+            } else {
+                player2Title.textContent = 'Игрок 2';
+                player2Title.style.color = PLAYER_COLORS[1].primary;
+            }
         }
     }
 
@@ -560,13 +616,6 @@ function updateUI() {
             'replace': 'btn-replace'
         }[state.selectedAction];
         if (btnId) document.getElementById(btnId).classList.add('selected');
-    }
-    
-    const player1Title = document.querySelector('#player1-section .player-title');
-    
-    if (player1Title) {
-        player1Title.style.color = PLAYER_COLORS[0].primary;
-        player1Title.textContent = 'Игрок';
     }
 }
 
@@ -1388,13 +1437,16 @@ function checkServerStatus() {
     }
     
     // PeerJS использует свой сервер, проверяем доступность
-    // Простая проверка - пытаемся создать временный peer
-    const testPeer = new Peer({
-        host: '0.peerjs.com',
-        port: 443,
-        path: '/',
-        secure: true
-    });
+    // URL сервера: https://0.peerjs.com:443/
+    // Это бесплатный демо-сервер, может быть недоступен
+    // Альтернативы:
+    // 1. Развернуть свой сервер PeerJS (https://github.com/peers/peerjs-server)
+    // 2. Использовать альтернативный сервер (если доступен)
+    // 3. Использовать другой сервис (PartyKit, Firebase и т.д.)
+    
+    const serverUrl = `https://${PEERJS_CONFIG.host}:${PEERJS_CONFIG.port}${PEERJS_CONFIG.path}`;
+    console.log('Проверка доступности PeerJS сервера:', serverUrl);
+    const testPeer = new Peer(PEERJS_CONFIG);
     
     testPeer.on('open', () => {
         state.serverStatus = 'online';
@@ -1444,12 +1496,8 @@ function createRoom() {
     updateRoomIdDisplay();
     
     // Создаем Peer с этим ID (хост)
-    state.peer = new Peer(state.onlineRoomId, {
-        host: '0.peerjs.com',
-        port: 443,
-        path: '/',
-        secure: true
-    });
+    console.log('Создание комнаты на сервере:', `https://${PEERJS_CONFIG.host}:${PEERJS_CONFIG.port}${PEERJS_CONFIG.path}`);
+    state.peer = new Peer(state.onlineRoomId, PEERJS_CONFIG);
     
     state.isHost = true;
     state.playerNumber = 0;
@@ -1518,12 +1566,8 @@ function connectToRoom(roomId) {
     updateStatus('Подключение к комнате...');
     
     // Создаем Peer без ID (клиент)
-    state.peer = new Peer({
-        host: '0.peerjs.com',
-        port: 443,
-        path: '/',
-        secure: true
-    });
+    console.log('Подключение к серверу:', `https://${PEERJS_CONFIG.host}:${PEERJS_CONFIG.port}${PEERJS_CONFIG.path}`);
+    state.peer = new Peer(PEERJS_CONFIG);
     
     state.isHost = false;
     state.playerNumber = 1;
@@ -1560,13 +1604,13 @@ function handlePeerConnection(conn) {
         updateOnlineButtons();
         
         if (state.isHost) {
-            updateStatus('Второй игрок подключился! Начинаем игру.');
+            updateStatus('Второй игрок подключился! Вы играете за Игрока 1. Начинаем игру.');
             // Отправляем начальное состояние игры клиенту
             setTimeout(() => {
                 sendGameState();
             }, 500);
         } else {
-            updateStatus('Подключено к комнате! Ожидание начала игры...');
+            updateStatus('Подключено к комнате! Вы играете за Игрока 2. Ожидание начала игры...');
             // Запрашиваем начальное состояние
             setTimeout(() => {
                 if (state.peerConnection) {
@@ -1576,6 +1620,9 @@ function handlePeerConnection(conn) {
                 }
             }, 500);
         }
+        
+        // Обновляем UI чтобы показать роли
+        updateUI();
     });
     
     conn.on('data', (data) => {
@@ -1772,23 +1819,53 @@ function updatePlayerStatuses() {
     
     // Игрок 1
     if (player1Dot && player1Text) {
-        if (state.player1Confirmed) {
-            player1Dot.className = 'status-dot confirmed';
-            player1Text.textContent = 'Подтвержден';
+        if (state.gameModeType === 'online' && state.isConnected) {
+            if (state.playerNumber === 0) {
+                // Это вы (хост)
+                player1Dot.className = 'status-dot confirmed';
+                player1Text.textContent = 'Вы (Хост)';
+            } else if (state.player1Confirmed) {
+                // Это оппонент
+                player1Dot.className = 'status-dot confirmed';
+                player1Text.textContent = 'Оппонент';
+            } else {
+                player1Dot.className = 'status-dot pending';
+                player1Text.textContent = 'Ожидание...';
+            }
         } else {
-            player1Dot.className = 'status-dot pending';
-            player1Text.textContent = 'Ожидание...';
+            if (state.player1Confirmed) {
+                player1Dot.className = 'status-dot confirmed';
+                player1Text.textContent = 'Подтвержден';
+            } else {
+                player1Dot.className = 'status-dot pending';
+                player1Text.textContent = 'Ожидание...';
+            }
         }
     }
     
     // Игрок 2
     if (player2Dot && player2Text) {
-        if (state.player2Confirmed) {
-            player2Dot.className = 'status-dot confirmed';
-            player2Text.textContent = 'Подтвержден';
+        if (state.gameModeType === 'online' && state.isConnected) {
+            if (state.playerNumber === 1) {
+                // Это вы (клиент)
+                player2Dot.className = 'status-dot confirmed';
+                player2Text.textContent = 'Вы (Клиент)';
+            } else if (state.player2Confirmed) {
+                // Это оппонент
+                player2Dot.className = 'status-dot confirmed';
+                player2Text.textContent = 'Оппонент';
+            } else {
+                player2Dot.className = 'status-dot pending';
+                player2Text.textContent = 'Ожидание...';
+            }
         } else {
-            player2Dot.className = 'status-dot pending';
-            player2Text.textContent = 'Ожидание...';
+            if (state.player2Confirmed) {
+                player2Dot.className = 'status-dot confirmed';
+                player2Text.textContent = 'Подтвержден';
+            } else {
+                player2Dot.className = 'status-dot pending';
+                player2Text.textContent = 'Ожидание...';
+            }
         }
     }
 }

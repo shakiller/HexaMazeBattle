@@ -18,7 +18,7 @@
         <button class="mode-btn" data-mode="flag" onclick="setGameMode('flag')">С флагом ↩</button>
         <button class="mode-btn active" data-mode-type="single" onclick="setGameModeType('single')">1 игрок</button>
         <button class="mode-btn" data-mode-type="bot" onclick="setGameModeType('bot')">🤖 Бот</button>
-        <button class="mode-btn" data-mode-type="online" onclick="setGameModeType('online')">🌐 Онлайн</button>
+        <button class="mode-btn" data-mode-type="online" onclick="setGameModeType('online')">🌐 Онлайн <span class="vpn-label">VPN</span></button>
         <button class="mode-btn" onclick="restartGame()">🔄 Заново</button>
         <button class="mode-btn" onclick="toggleSettings()">⚙️ Настройки</button>
     </div>
@@ -109,6 +109,7 @@
 
     <div class="top-panel">
         <div class="player-section player1 active" id="player1-section">
+            <div class="player-badge">Игрок 1</div>
             <div class="player-token-preview p1"></div>
             <span class="player-title">Игрок</span>
         </div>
@@ -124,6 +125,7 @@
         </div>
 
         <div class="player-section player2" id="player2-section" style="display: none;">
+            <div class="player-badge">Игрок 2</div>
             <div class="player-token-preview p2"></div>
             <span class="player-title">Игрок 2</span>
         </div>
